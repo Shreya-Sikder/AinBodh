@@ -1,0 +1,2330 @@
+﻿import express from "express";
+import cors from "cors";
+import "dotenv/config";
+import Groq from "groq-sdk";
+import { pipeline } from "@xenova/transformers";
+import { supabase } from "./supabase";
+import multer from "multer";
+import { extractDocument } from "./documentExtractor";
+
+const app = express();
+
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
+
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 15 * 1024 * 1024,
+    files: 1,
+  },
+});
+
+const PORT = Number(process.env.PORT || 5000);
+
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
+
+const EMBEDDING_MODEL = "Xenova/bge-m3";
+const GROQ_MODEL = "openai/gpt-oss-120b";
+
+let embedder: any = null;
+
+/* =========================================================
+   DOCUMENT EXTRACTION
+========================================================= */
+
+app.post(
+  "/api/legal/extract",
+  documentUpload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          ok: false,
+          error: "No file was uploaded.",
+        });
+      }
+
+      console.log("");
+      console.log("========================================");
+      console.log("DOCUMENT EXTRACTION");
+      console.log("========================================");
+      console.log(`File: ${req.file.originalname}`);
+      console.log(`Size: ${req.file.size} bytes`);
+      console.log(`MIME: ${req.file.mimetype}`);
+
+      const document = await extractDocument(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+      );
+
+      console.log(`Pages: ${document.pages}`);
+      console.log(`Method: ${document.extractionMethod}`);
+      console.log(`Characters: ${document.text.length}`);
+      console.log("========================================");
+
+      return res.json({
+        ok: true,
+        document,
+      });
+    } catch (error) {
+      console.error(
+        "DOCUMENT EXTRACTION ERROR:",
+        error,
+      );
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Document extraction failed.";
+
+      return res.status(400).json({
+        ok: false,
+        error: message,
+      });
+    }
+  },
+);
+
+/* =========================================================
+   BASIC
+========================================================= */
+
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "AinBodh Legal API",
+  });
+});
+
+app.get("/test-supabase", async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("legal_metadata")
+      .select("*")
+      .limit(1);
+
+    if (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error.message,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      sample: data,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || "Unknown error",
+    });
+  }
+});
+
+/* =========================================================
+   EMBEDDING
+========================================================= */
+
+async function getEmbedder() {
+  if (!embedder) {
+    console.log(
+      `Loading embedding model: ${EMBEDDING_MODEL}`,
+    );
+
+    embedder = await pipeline(
+      "feature-extraction",
+      EMBEDDING_MODEL,
+    );
+
+    console.log("Embedding model loaded.");
+  }
+
+  return embedder;
+}
+
+async function embedQuery(
+  text: string,
+): Promise<number[]> {
+  const model = await getEmbedder();
+
+  const output = await model(text, {
+    pooling: "cls",
+    normalize: true,
+  });
+
+  return Array.from(output.data);
+}
+
+/* =========================================================
+   NORMALIZATION
+========================================================= */
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[â€œâ€â€˜â€™"']/g, " ")
+    .replace(/[à¥¤,!?;:()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeBangla(text: string): string {
+  return normalizeText(text)
+    .replace(/à¦­à¦¾à§œà¦¾/g, "à¦­à¦¾à¦¡à¦¼à¦¾")
+    .replace(/à¦¬à¦¾à§œà¦¿à¦“à§Ÿà¦¾à¦²à¦¾/g, "à¦¬à¦¾à¦¡à¦¼à¦¿à¦“à¦¯à¦¼à¦¾à¦²à¦¾")
+    .replace(/à¦¬à¦¾à§œà¦¿à¦“à¦¯à¦¼à¦¾à¦²à¦¾/g, "à¦¬à¦¾à¦¡à¦¼à¦¿à¦“à¦¯à¦¼à¦¾à¦²à¦¾")
+    .replace(/à¦­à¦¾à§œà¦¾à¦Ÿà¦¿à§Ÿà¦¾/g, "à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾")
+    .replace(/à¦­à¦¾à§œà¦¾à¦Ÿà§€/g, "à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾")
+    .replace(/à¦¬à¦¾à§œà§€à¦°/g, "à¦¬à¦¾à¦¡à¦¼à§€à¦°")
+    .replace(/à¦¬à¦¾à§œà¦¿/g, "à¦¬à¦¾à¦¡à¦¼à¦¿")
+    .replace(/à¦¬à¦¾à§œà§€/g, "à¦¬à¦¾à¦¡à¦¼à§€");
+}
+
+/* =========================================================
+   COMMUNICATION STYLE
+========================================================= */
+
+type CommunicationStyle =
+  | "english"
+  | "bangla"
+  | "banglish";
+
+function detectCommunicationStyle(
+  question: string,
+): CommunicationStyle {
+  const text = question.trim();
+
+  const banglaChars =
+    text.match(/[\u0980-\u09FF]/g)?.length ?? 0;
+
+  const latinChars =
+    text.match(/[A-Za-z]/g)?.length ?? 0;
+
+  if (banglaChars > 0) {
+    return "bangla";
+  }
+
+  const lower = text.toLowerCase();
+
+  const banglishMarkers = [
+    "ami",
+    "amar",
+    "amake",
+    "amra",
+    "amader",
+    "apni",
+    "apnar",
+    "apnake",
+    "bariwala",
+    "barir malik",
+    "barivara",
+    "vara",
+    "bhara",
+    "nibe",
+    "nite",
+    "chay",
+    "chai",
+    "chacche",
+    "korbo",
+    "korben",
+    "ki korbo",
+    "parbo",
+    "parben",
+    "hobe",
+    "ache",
+    "nei",
+    "den",
+    "diben",
+    "bolen",
+    "kivabe",
+    "keno",
+    "jodi",
+    "tahole",
+    "korte",
+    "korar",
+    "niye",
+    "dite",
+    "nite",
+  ];
+
+  const looksBanglish = banglishMarkers.some(
+    (marker) =>
+      lower.includes(marker),
+  );
+
+  if (looksBanglish) {
+    return "banglish";
+  }
+
+  return latinChars > 0
+    ? "english"
+    : "bangla";
+}
+
+/* =========================================================
+   LEGAL INTENT
+========================================================= */
+
+type LegalIntent =
+  | "rent_refusal"
+  | "rent_receipt"
+  | "eviction"
+  | "unknown";
+
+function detectLegalIntent(question: string): LegalIntent {
+  const text = normalizeBangla(question);
+
+  const hasRent =
+    text.includes("à¦­à¦¾à¦¡à¦¼à¦¾") ||
+    text.includes("à¦­à¦¾à§œ") ||
+    text.includes("rent");
+
+  const hasLandlordTenant =
+    text.includes("à¦¬à¦¾à¦¡à¦¼à¦¿à¦“à¦¯à¦¼à¦¾à¦²à¦¾") ||
+    text.includes("à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•") ||
+    text.includes("à¦¬à¦¾à¦¡à¦¼à¦¿à¦° à¦®à¦¾à¦²à¦¿à¦•") ||
+    text.includes("à¦¬à¦¾à§œà¦¿à¦“à§Ÿà¦¾à¦²à¦¾") ||
+    text.includes("à¦¬à¦¾à§œà¦¿à¦° à¦®à¦¾à¦²à¦¿à¦•") ||
+    text.includes("landlord") ||
+    text.includes("tenant") ||
+    text.includes("à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾") ||
+    text.includes("à¦­à¦¾à§œà¦¾à¦Ÿà¦¿à§Ÿà¦¾");
+
+  const rentRefusalTerms = [
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦° à¦•à¦°à¦›à§‡",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦šà§à¦›à§‡à¦¨ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à§‡à¦¯à¦¼ à¦¨à¦¾",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à§‡à§Ÿ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à§œà¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦° à¦•à¦°à¦›à§‡",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦šà§à¦›à§‡ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦¨à¦¿à¦šà§à¦›à§‡à¦¨ à¦¨à¦¾",
+    "à¦­à¦¾à§œà¦¾ à¦¨à§‡à§Ÿ à¦¨à¦¾",
+    "rent refused",
+    "refused to accept rent",
+    "refuses to accept rent",
+    "won't accept rent",
+    "will not accept rent",
+    "not accepting rent",
+  ];
+
+  const receiptTerms = [
+    "à¦­à¦¾à¦¡à¦¼à¦¾à¦° à¦°à¦¶à¦¿à¦¦",
+    "à¦­à¦¾à§œà¦¾à¦° à¦°à¦¶à¦¿à¦¦",
+    "à¦°à¦¶à¦¿à¦¦ à¦ªà§à¦°à¦¦à¦¾à¦¨",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦ªà¦°à¦¿à¦¶à§‹à¦§à§‡à¦° à¦°à¦¶à¦¿à¦¦",
+    "à¦­à¦¾à§œà¦¾à¦° receipt",
+    "rent receipt",
+    "receipt for rent",
+  ];
+
+  const evictionTerms = [
+    "à¦‰à¦šà§à¦›à§‡à¦¦",
+    "à¦‰à¦šà§à¦›à§‡à¦¦à§‡à¦° à¦¨à§‹à¦Ÿà¦¿à¦¶",
+    "à¦‰à¦šà§à¦›à§‡à¦¦ à¦¨à§‹à¦Ÿà¦¿à¦¶",
+    "à¦¬à¦¾à¦¡à¦¼à¦¿ à¦¥à§‡à¦•à§‡ à¦¬à§‡à¦° à¦•à¦°à§‡",
+    "à¦¬à¦¾à§œà¦¿ à¦¥à§‡à¦•à§‡ à¦¬à§‡à¦° à¦•à¦°à§‡",
+    "à¦¬à§‡à¦° à¦•à¦°à§‡ à¦¦à¦¿à¦¤à§‡",
+    "à¦¬à§‡à¦° à¦•à¦°à§‡ à¦¦à§‡à¦¬à§‡",
+    "eviction",
+    "eviction notice",
+    "evict",
+  ];
+
+  if (
+    hasRent &&
+    (hasLandlordTenant || rentRefusalTerms.some((term) => text.includes(term))) &&
+    rentRefusalTerms.some((term) => text.includes(term))
+  ) {
+    return "rent_refusal";
+  }
+
+  if (
+    hasRent &&
+    (hasLandlordTenant || receiptTerms.some((term) => text.includes(term))) &&
+    receiptTerms.some((term) => text.includes(term))
+  ) {
+    return "rent_receipt";
+  }
+
+  if (
+    evictionTerms.some((term) => text.includes(term)) &&
+    (hasLandlordTenant || hasRent)
+  ) {
+    return "eviction";
+  }
+
+  /*
+   * Conversational fallback:
+   * Detect the common situation where the user describes
+   * a landlord refusing/not accepting rent without using
+   * formal legal wording such as "à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°".
+   */
+  const landlordRefusingRent =
+    hasRent &&
+    hasLandlordTenant &&
+    (
+      text.includes("à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("à¦¨à¦¿à¦šà§à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("à¦¨à¦¿à¦šà§à¦›à§‡à¦¨ à¦¨à¦¾") ||
+      text.includes("à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦›à§‡à¦¨ à¦¨à¦¾") ||
+      text.includes("à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("accept à¦•à¦°à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("accept à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦šà§à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("accept à¦•à¦°à¦¤à§‡ à¦šà¦¾à¦‡à¦›à§‡ à¦¨à¦¾") ||
+      text.includes("refused") ||
+      text.includes("refuse") ||
+      text.includes("not accepting")
+    );
+
+  if (landlordRefusingRent) {
+    return "rent_refusal";
+  }
+
+  return "unknown";
+}
+/* =========================================================
+   SITUATION ANALYSIS
+========================================================= */
+
+type SituationAnalysis = {
+  queryType:
+    | "direct"
+    | "situational";
+
+  legalIssue: string;
+
+  facts: string[];
+
+  timePeriod: string | null;
+
+  requestedHelp: string;
+
+  missingFacts: string[];
+
+  retrievalQuery: string;
+};
+
+function fallbackSituationAnalysis(
+  question: string,
+  intent: LegalIntent,
+): SituationAnalysis {
+  let legalIssue = "Unknown legal issue";
+
+  if (intent === "rent_refusal") {
+    legalIssue =
+      "landlord refusing to accept rent";
+  } else if (intent === "rent_receipt") {
+    legalIssue =
+      "rent receipt";
+  } else if (intent === "eviction") {
+    legalIssue =
+      "eviction";
+  }
+
+  const looksLikeQuestion =
+    /\b(what|why|how|can|could|would|should)\b/i.test(
+      question,
+    ) ||
+    question.includes("à¦•à¦¿") ||
+    question.includes("à¦•à§€") ||
+    question.includes("à¦•à§‡à¦¨") ||
+    question.includes("à¦•à¦¿à¦­à¦¾à¦¬à§‡") ||
+    question.includes("à¦•à§€à¦­à¦¾à¦¬à§‡") ||
+    question.includes("korbo") ||
+    question.includes("kivabe") ||
+    question.includes("keno");
+
+  return {
+    queryType: looksLikeQuestion
+      ? "situational"
+      : "direct",
+
+    legalIssue,
+
+    facts: [question.trim()],
+
+    timePeriod: null,
+
+    requestedHelp: question.trim(),
+
+    missingFacts: [],
+
+    retrievalQuery:
+      `${question} ${legalIssue}`.trim(),
+  };
+}
+
+async function analyzeSituation(
+  question: string,
+  intent: LegalIntent,
+): Promise<SituationAnalysis> {
+
+  const prompt = `
+Analyze this user's input for Bangladesh legal-information retrieval.
+
+IMPORTANT:
+A user's situation may contain more than one legal issue.
+Identify all clearly supported legal issues, not just the first one.
+
+For example:
+"My landlord refused my rent for two months and now told me to leave."
+
+Possible issues:
+- rent payment refusal
+- eviction concern
+
+Do not invent an issue that is not supported by the user's words.
+- This is ONLY query analysis.
+- Do NOT provide legal advice.
+- Do NOT determine whether the user has a legal right.
+- Do NOT invent facts.
+- Do NOT invent laws or section numbers.
+- Extract only facts explicitly stated by the user.
+- Normalize informal, conversational, or Banglish wording into
+  neutral legal concepts.
+- Preserve the user's actual situation.
+- The retrievalQuery is ONLY a neutral description of the legal
+  issue and facts needed to find relevant legislation.
+- Do NOT add words such as "rights", "obligation", "illegal",
+  "case law", "remedy", "penalty", or similar legal conclusions
+  unless the user explicitly used them.
+- Do NOT add laws or section numbers that were not supplied.
+- Do NOT add Bangladesh-specific legislation names unless they
+  are already known from the detected intent.
+
+USER INPUT:
+${question}
+
+DETECTED LEGAL INTENT:
+${intent}
+
+
+Return ONLY valid JSON in exactly this structure:
+
+{
+  "queryType": "direct" | "situational",
+  "legalIssue": "short description",
+  "facts": ["only explicitly stated facts"],
+  "timePeriod": "explicitly stated time period or null",
+  "requestedHelp": "what the user is asking",
+  "missingFacts": ["facts that could matter but were not provided"],
+"retrievalQuery": "short neutral legal issue for retrieval; no legal conclusions"
+}
+
+Rules for missingFacts:
+- Only identify information that could materially affect legal analysis.
+- Do not invent missing facts.
+- Do not ask the user questions here.
+
+Do NOT answer the user's question.
+`;
+
+  try {
+    const completion =
+      await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        temperature: 0,
+        max_tokens: 700,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a legal-query analysis engine. Return JSON only.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+    const raw =
+      completion.choices?.[0]?.message?.content
+        ?.trim();
+
+    if (!raw) {
+      return fallbackSituationAnalysis(
+        question,
+        intent,
+      );
+    }
+
+    const cleaned = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    const parsed =
+      JSON.parse(
+        cleaned,
+      ) as Partial<SituationAnalysis>;
+
+    return {
+      queryType:
+        parsed.queryType === "situational"
+          ? "situational"
+          : "direct",
+
+      legalIssue:
+        typeof parsed.legalIssue === "string"
+          ? parsed.legalIssue
+          : "Unknown legal issue",
+
+      facts:
+        Array.isArray(parsed.facts)
+          ? parsed.facts.filter(
+              (item): item is string =>
+                typeof item === "string",
+            )
+          : [],
+
+      timePeriod:
+        typeof parsed.timePeriod === "string"
+          ? parsed.timePeriod
+          : null,
+
+      requestedHelp:
+        typeof parsed.requestedHelp === "string"
+          ? parsed.requestedHelp
+          : question,
+
+      missingFacts:
+        Array.isArray(parsed.missingFacts)
+          ? parsed.missingFacts.filter(
+              (item): item is string =>
+                typeof item === "string",
+            )
+          : [],
+
+      retrievalQuery:
+        typeof parsed.retrievalQuery === "string" &&
+        parsed.retrievalQuery.trim()
+          ? parsed.retrievalQuery.trim()
+          : question,
+    };
+  } catch (error) {
+    console.error(
+      "SITUATION ANALYSIS FAILED:",
+      error,
+    );
+
+    return fallbackSituationAnalysis(
+      question,
+      intent,
+    );
+  }
+}
+
+/* =========================================================
+   SEARCH TERMS
+========================================================= */
+
+const INTENT_TERMS: Record<
+  LegalIntent,
+  string[]
+> = {
+  rent_refusal: [
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦œà¦®à¦¾",
+    "à¦¡à¦¾à¦• à¦®à¦¨à¦¿ à¦…à¦°à§à¦¡à¦¾à¦°",
+    "à¦®à¦¨à¦¿ à¦…à¦°à§à¦¡à¦¾à¦°",
+    "à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•",
+    "à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾",
+  ],
+
+  rent_receipt: [
+    "à¦­à¦¾à¦¡à¦¼à¦¾à¦° à¦°à¦¶à¦¿à¦¦",
+    "à¦°à¦¶à¦¿à¦¦ à¦ªà§à¦°à¦¦à¦¾à¦¨",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦ªà¦°à¦¿à¦¶à§‹à¦§",
+    "à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•",
+    "à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾",
+  ],
+
+  eviction: [
+    "à¦‰à¦šà§à¦›à§‡à¦¦",
+    "à¦‰à¦šà§à¦›à§‡à¦¦à§‡à¦° à¦¨à§‹à¦Ÿà¦¿à¦¶",
+    "à¦­à¦¾à¦¡à¦¼à¦¾ à¦¬à¦•à§‡à¦¯à¦¼à¦¾",
+    "à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•",
+    "à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾",
+  ],
+
+  unknown: [],
+};
+
+const STOP_WORDS = new Set([
+  "à¦†à¦®à¦¿",
+  "à¦†à¦®à¦¾à¦°",
+  "à¦†à¦®à¦¾à¦•à§‡",
+  "à¦†à¦®à¦°à¦¾",
+  "à¦†à¦®à¦¾à¦¦à§‡à¦°",
+  "à¦†à¦ªà¦¨à¦¿",
+  "à¦†à¦ªà¦¨à¦¾à¦°",
+  "à¦à¦‡",
+  "à¦“à¦‡",
+  "à¦à¦•à¦Ÿà¦¿",
+  "à¦à¦•à¦œà¦¨",
+  "à¦•à¦¿",
+  "à¦•à§€",
+  "à¦•à§‡à¦¨",
+  "à¦•à¦¿à¦­à¦¾à¦¬à§‡",
+  "à¦•à§€à¦­à¦¾à¦¬à§‡",
+  "à¦•à§‹à¦¨",
+  "à¦•à§‹à¦¨à§‹",
+  "à¦¯à¦¦à¦¿",
+  "à¦¤à¦¾à¦¹à¦²à§‡",
+  "à¦¯à§‡",
+  "à¦¯à¦¾",
+  "à¦¤à¦¾",
+  "à¦à¦¬à¦‚",
+  "à¦¬à¦¾",
+  "à¦•à¦¿à¦¨à§à¦¤à§",
+  "à¦¥à§‡à¦•à§‡",
+  "à¦œà¦¨à§à¦¯",
+  "à¦¸à¦¾à¦¥à§‡",
+  "à¦•à¦°à§‡",
+  "à¦•à¦°à¦¤à§‡",
+  "à¦•à¦°à¦¬",
+  "à¦•à¦°à¦¬à§‹",
+  "à¦¹à§Ÿ",
+  "à¦¹à¦¯à¦¼",
+  "à¦¹à¦¬à§‡",
+  "à¦›à¦¿à¦²",
+  "à¦†à¦›à§‡",
+  "à¦†à¦›à¦¿",
+  "à¦šà¦¾à¦‡",
+  "à¦šà¦¾à§Ÿ",
+  "à¦šà¦¾à¦¯à¦¼",
+  "à¦ªà¦¾à¦°à¦¿",
+  "à¦ªà¦¾à¦°à¦¬",
+  "à¦ªà¦¾à¦°à¦¬à§‹",
+  "à¦¦à¦¿à§Ÿà§‡",
+  "à¦¦à¦¿à¦¯à¦¼à§‡",
+  "à¦¨à¦¿à¦¤à§‡",
+  "à¦¨à¦¿à§Ÿà§‡",
+  "à¦¨à¦¿à¦¯à¦¼à§‡",
+  "à¦¦à¦¿à¦¤à§‡",
+
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "am",
+  "my",
+  "me",
+  "i",
+  "we",
+  "our",
+  "you",
+  "your",
+  "they",
+  "their",
+  "what",
+  "why",
+  "how",
+  "can",
+  "could",
+  "would",
+  "should",
+  "do",
+  "does",
+  "did",
+  "to",
+  "for",
+  "from",
+  "with",
+  "and",
+  "or",
+  "but",
+  "if",
+  "then",
+  "in",
+  "on",
+  "of",
+  "this",
+  "that",
+]);
+
+function extractLegalSearchTerms(
+  question: string,
+  intent: LegalIntent,
+  retrievalQuery?: string,
+): string[] {
+  const terms = new Set<string>();
+
+  for (const term of INTENT_TERMS[intent]) {
+    terms.add(term);
+  }
+
+  const searchText = [
+    question,
+    retrievalQuery || "",
+  ].join(" ");
+
+  const words = normalizeBangla(searchText)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(
+      (word) => !STOP_WORDS.has(word),
+    )
+    .filter(
+      (word) => word.length >= 3,
+    );
+
+  for (const word of words) {
+    terms.add(word);
+  }
+
+  return Array.from(terms).slice(0, 24);
+}
+
+/* =========================================================
+   RESULT TYPE
+========================================================= */
+
+type LegalResult = {
+  id: string;
+  title: string;
+  act_file: string;
+  start: number;
+  end: number;
+  text: string;
+  rank?: number;
+  similarity?: number;
+  lexicalScore?: number;
+  exactScore?: number;
+  actBoost?: number;
+  combinedScore?: number;
+  matchedTerms?: string[];
+};
+
+/* =========================================================
+   LEXICAL SEARCH
+========================================================= */
+
+async function lexicalSearch(
+  terms: string[],
+): Promise<LegalResult[]> {
+  const results: LegalResult[] = [];
+
+  for (const term of terms) {
+    try {
+      const { data, error } =
+        await supabase.rpc("search_legal", {
+          search_text: term,
+          match_count: 12,
+        });
+
+      if (error) {
+        console.error(
+          `Lexical search failed for "${term}":`,
+          error.message,
+        );
+        continue;
+      }
+
+      if (Array.isArray(data)) {
+        for (const row of data) {
+          results.push({
+            ...row,
+            rank: Number(row.rank || 0),
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(
+        "Lexical search exception:",
+        error?.message || error,
+      );
+    }
+  }
+
+  return results;
+}
+
+/* =========================================================
+   SEMANTIC SEARCH
+========================================================= */
+
+async function semanticSearch(
+  question: string,
+): Promise<LegalResult[]> {
+  const embedding = await embedQuery(question);
+
+  const { data, error } =
+    await supabase.rpc(
+      "match_legal_chunks",
+      {
+        query_embedding: embedding,
+        match_threshold: 0.35,
+        match_count: 8,
+      },
+    );
+
+  if (error) {
+    console.error(
+      "Semantic search failed:",
+      error.message,
+    );
+
+    /*
+     * Semantic search is supplementary.
+     * If Supabase vector search times out,
+     * lexical retrieval can still provide
+     * grounded evidence.
+     */
+    return [];
+  }
+
+  return Array.isArray(data)
+    ? data.map((row: any) => ({
+        ...row,
+        similarity: Number(
+          row.similarity || 0,
+        ),
+      }))
+    : [];
+}
+
+/* =========================================================
+   ACT RELEVANCE
+========================================================= */
+
+function isHouseRentAct(
+  result: LegalResult,
+): boolean {
+  const title = normalizeBangla(
+    result.title || "",
+  );
+
+  return (
+    result.act_file === "748.json" ||
+    title.includes(
+      "à¦¬à¦¾à¦¡à¦¼à§€ à¦­à¦¾à¦¡à¦¼à¦¾ à¦¨à¦¿à¦¯à¦¼à¦¨à§à¦¤à§à¦°à¦£ à¦†à¦‡à¦¨",
+    )
+  );
+}
+
+/* =========================================================
+   EXACT SCORE
+========================================================= */
+
+function calculateExactScore(
+  result: LegalResult,
+  intent: LegalIntent,
+): number {
+  const text = normalizeBangla(
+    result.text || "",
+  );
+
+  if (intent === "rent_refusal") {
+    let score = 0;
+
+    if (
+      text.includes(
+        "à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¿à¦¤à§‡ à¦…à¦¸à§à¦¬à§€à¦•à¦¾à¦°",
+      )
+    ) {
+      score += 1;
+    }
+
+    if (
+      text.includes("à¦¡à¦¾à¦• à¦®à¦¨à¦¿ à¦…à¦°à§à¦¡à¦¾à¦°")
+    ) {
+      score += 1;
+    }
+
+    if (text.includes("à¦­à¦¾à¦¡à¦¼à¦¾ à¦œà¦®à¦¾")) {
+      score += 1;
+    }
+
+    if (
+      text.includes("à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•")
+    ) {
+      score += 0.5;
+    }
+
+    if (
+      text.includes("à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾")
+    ) {
+      score += 0.5;
+    }
+
+    return Math.min(score / 3, 1);
+  }
+
+  if (intent === "rent_receipt") {
+    let score = 0;
+
+    if (text.includes("à¦°à¦¶à¦¿à¦¦")) {
+      score += 1;
+    }
+
+    if (text.includes("à¦­à¦¾à¦¡à¦¼à¦¾")) {
+      score += 1;
+    }
+
+    if (
+      text.includes("à¦­à¦¾à¦¡à¦¼à¦¾à¦Ÿà¦¿à¦¯à¦¼à¦¾")
+    ) {
+      score += 0.5;
+    }
+
+    if (
+      text.includes("à¦¬à¦¾à¦¡à¦¼à§€-à¦®à¦¾à¦²à¦¿à¦•")
+    ) {
+      score += 0.5;
+    }
+
+    return Math.min(score / 2.5, 1);
+  }
+
+  return 0;
+}
+
+/* =========================================================
+   RANK
+========================================================= */
+
+function mergeResults(
+  question: string,
+  intent: LegalIntent,
+  lexical: LegalResult[],
+  semantic: LegalResult[],
+  terms: string[],
+): LegalResult[] {
+  const map = new Map<
+    string,
+    LegalResult
+  >();
+
+  function add(
+    result: LegalResult,
+    source:
+      | "lexical"
+      | "semantic",
+  ) {
+    const key =
+      result.id ||
+      `${result.act_file}:${result.start}:${result.end}`;
+
+    const old = map.get(key);
+
+    const lexicalScore =
+      source === "lexical"
+        ? Math.max(
+            Number(result.rank || 0),
+            Number(
+              old?.lexicalScore || 0,
+            ),
+          )
+        : Number(
+            old?.lexicalScore || 0,
+          );
+
+    const similarity =
+      source === "semantic"
+        ? Math.max(
+            Number(
+              result.similarity || 0,
+            ),
+            Number(
+              old?.similarity || 0,
+            ),
+          )
+        : Number(
+            old?.similarity || 0,
+          );
+
+    const actBoost =
+      intent === "rent_refusal" ||
+      intent === "rent_receipt"
+        ? isHouseRentAct(result)
+          ? 1
+          : 0
+        : 0;
+
+    const exactScore =
+      calculateExactScore(
+        result,
+        intent,
+      );
+
+    const normalizedResultText =
+      normalizeBangla(
+        result.text || "",
+      );
+
+    const matchedTerms =
+      Array.from(
+        new Set([
+          ...(old?.matchedTerms || []),
+          ...terms.filter((term) =>
+            normalizedResultText.includes(
+              normalizeBangla(term),
+            ),
+          ),
+        ]),
+      );
+
+    const combinedScore =
+      exactScore * 0.5 +
+      (Math.min(
+        lexicalScore,
+        1.5,
+      ) /
+        1.5) *
+        0.25 +
+      actBoost * 0.2 +
+      Math.min(
+        similarity,
+        1,
+      ) *
+        0.05;
+
+    map.set(key, {
+      ...(old || result),
+      lexicalScore,
+      similarity,
+      exactScore,
+      actBoost,
+      combinedScore,
+      matchedTerms,
+    });
+  }
+
+  for (const item of lexical) {
+    add(item, "lexical");
+  }
+
+  for (const item of semantic) {
+    add(item, "semantic");
+  }
+
+  let ranked = Array.from(
+    map.values(),
+  );
+
+  if (
+    intent === "rent_refusal" ||
+    intent === "rent_receipt"
+  ) {
+    ranked = ranked.filter(
+      (item) =>
+        isHouseRentAct(item),
+    );
+  }
+
+  return ranked
+    .sort(
+      (a, b) =>
+        Number(
+          b.combinedScore || 0,
+        ) -
+        Number(
+          a.combinedScore || 0,
+        ),
+    )
+    .slice(0, 10);
+}
+
+/* =========================================================
+   SECTION EXTRACTION
+========================================================= */
+
+const BANGLA_DIGITS =
+  "à§¦à§§à§¨à§©à§ªà§«à§¬à§­à§®à§¯";
+
+function banglaDigitsToArabic(
+  value: string,
+): string {
+  return value
+    .split("")
+    .map((char) => {
+      const index =
+        BANGLA_DIGITS.indexOf(
+          char,
+        );
+
+      return index >= 0
+        ? String(index)
+        : char;
+    })
+    .join("");
+}
+
+type SectionEvidence = {
+  sectionNumber: string;
+  text: string;
+};
+
+function extractSections(
+  text: string,
+): SectionEvidence[] {
+  if (!text) return [];
+
+  const regex =
+    /([à§¦-à§¯]{1,3}|[0-9]{1,3})\s*[à¥¤.à§·]/g;
+
+  const matches: {
+    number: string;
+    index: number;
+  }[] = [];
+
+  let match: RegExpExecArray | null;
+
+  while (
+    (match = regex.exec(text)) !== null
+  ) {
+    const raw = match[1];
+
+    const number =
+      /[à§¦-à§¯]/.test(raw)
+        ? banglaDigitsToArabic(raw)
+        : raw;
+
+    const n = Number(number);
+
+    if (
+      Number.isInteger(n) &&
+      n >= 1 &&
+      n <= 999
+    ) {
+      matches.push({
+        number,
+        index: match.index,
+      });
+    }
+  }
+
+  const sections: SectionEvidence[] =
+    [];
+
+  for (
+    let i = 0;
+    i < matches.length;
+    i++
+  ) {
+    const current = matches[i];
+    const next = matches[i + 1];
+
+    const start = current.index;
+
+    const end = next
+      ? next.index
+      : text.length;
+
+    const sectionText = text
+      .slice(start, end)
+      .trim()
+      .slice(0, 6500);
+
+    sections.push({
+      sectionNumber:
+        current.number,
+      text: sectionText,
+    });
+  }
+
+  return sections;
+}
+
+/* =========================================================
+   CHOOSE SECTION
+========================================================= */
+
+function chooseBestSection(
+  result: LegalResult,
+  intent: LegalIntent,
+): SectionEvidence | null {
+  const sections = extractSections(
+    result.text || "",
+  );
+
+  if (sections.length === 0) {
+    return null;
+  }
+
+  if (
+    intent === "rent_refusal" &&
+    isHouseRentAct(result)
+  ) {
+    const section19 =
+      sections.find(
+        (section) =>
+          section.sectionNumber ===
+          "19",
+      );
+
+    if (section19) {
+      return section19;
+    }
+  }
+
+  if (
+    intent === "rent_receipt" &&
+    isHouseRentAct(result)
+  ) {
+    const section13 =
+      sections.find(
+        (section) =>
+          section.sectionNumber ===
+          "13",
+      );
+
+    if (section13) {
+      return section13;
+    }
+  }
+
+  const canonicalTerms =
+    INTENT_TERMS[intent].map(
+      normalizeBangla,
+    );
+
+  let best:
+    | SectionEvidence
+    | null = null;
+
+  let bestScore = -1;
+
+  for (const section of sections) {
+    const t = normalizeBangla(
+      section.text,
+    );
+
+    let score = 0;
+
+    for (const term of canonicalTerms) {
+      if (t.includes(term)) {
+        score++;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = section;
+    }
+  }
+
+  return best;
+}
+
+/* =========================================================
+   OFFICIAL SOURCE URLS
+========================================================= */
+
+type SourceInfo = {
+  sourceName: string;
+  sourceUrl: string;
+};
+
+function getOfficialSource(
+  actFile: string,
+  sectionNumber: string | null,
+): SourceInfo | null {
+  if (actFile !== "748.json") {
+    return null;
+  }
+
+  const actUrl =
+    "https://bdlaws.minlaw.gov.bd/act-print-748.html";
+
+  if (sectionNumber === "19") {
+    return {
+      sourceName:
+        "Laws of Bangladesh â€” à¦¬à¦¾à§œà§€ à¦­à¦¾à§œà¦¾ à¦¨à¦¿à§Ÿà¦¨à§à¦¤à§à¦°à¦£ à¦†à¦‡à¦¨, à§§à§¯à§¯à§§, à¦§à¦¾à¦°à¦¾ à§§à§¯",
+
+      sourceUrl:
+        "https://bdlaws.minlaw.gov.bd/act-print-748/section-print-30649.html",
+    };
+  }
+
+  if (sectionNumber === "13") {
+    return {
+      sourceName:
+        "Laws of Bangladesh â€” à¦¬à¦¾à§œà§€ à¦­à¦¾à§œà¦¾ à¦¨à¦¿à§Ÿà¦¨à§à¦¤à§à¦°à¦£ à¦†à¦‡à¦¨, à§§à§¯à§¯à§§, à¦§à¦¾à¦°à¦¾ à§§à§©",
+
+      sourceUrl:
+        "https://bdlaws.minlaw.gov.bd/act-print-748/section-print-30643.html",
+    };
+  }
+
+  return {
+    sourceName:
+      "Laws of Bangladesh â€” à¦¬à¦¾à§œà§€ à¦­à¦¾à§œà¦¾ à¦¨à¦¿à§Ÿà¦¨à§à¦¤à§à¦°à¦£ à¦†à¦‡à¦¨, à§§à§¯à§¯à§§",
+
+    sourceUrl: actUrl,
+  };
+}
+
+/* =========================================================
+   EVIDENCE
+========================================================= */
+
+type EvidenceItem = {
+  id: string;
+  title: string;
+  actFile: string;
+  sectionNumber: string | null;
+  text: string;
+  sourceName?: string;
+  sourceUrl?: string;
+};
+
+function buildEvidence(
+  results: LegalResult[],
+  intent: LegalIntent,
+): EvidenceItem[] {
+  const output: EvidenceItem[] = [];
+
+  /*
+   * RENT REFUSAL
+   *
+   * Only Section 19 is supplied.
+   */
+  if (intent === "rent_refusal") {
+    for (const result of results) {
+      if (!isHouseRentAct(result)) {
+        continue;
+      }
+
+      const section =
+        chooseBestSection(
+          result,
+          intent,
+        );
+
+      if (!section) {
+        continue;
+      }
+
+      if (
+        section.sectionNumber !==
+        "19"
+      ) {
+        continue;
+      }
+
+      const source =
+        getOfficialSource(
+          result.act_file,
+          "19",
+        );
+
+      output.push({
+        id: "C1",
+        title: result.title,
+        actFile: result.act_file,
+        sectionNumber: "19",
+        text: section.text,
+        sourceName:
+          source?.sourceName,
+        sourceUrl:
+          source?.sourceUrl,
+      });
+
+      break;
+    }
+
+    return output;
+  }
+
+  /*
+   * RENT RECEIPT
+   *
+   * Section 13 is the relevant
+   * receipt provision.
+   */
+  if (intent === "rent_receipt") {
+    for (const result of results) {
+      if (!isHouseRentAct(result)) {
+        continue;
+      }
+
+      const section =
+        chooseBestSection(
+          result,
+          intent,
+        );
+
+      if (!section) {
+        continue;
+      }
+
+      if (
+        section.sectionNumber !==
+        "13"
+      ) {
+        continue;
+      }
+
+      const source =
+        getOfficialSource(
+          result.act_file,
+          "13",
+        );
+
+      output.push({
+        id: "C1",
+        title: result.title,
+        actFile: result.act_file,
+        sectionNumber: "13",
+        text: section.text,
+        sourceName:
+          source?.sourceName,
+        sourceUrl:
+          source?.sourceUrl,
+      });
+
+      break;
+    }
+
+    return output;
+  }
+
+  /*
+   * GENERIC FALLBACK
+   *
+   * Do NOT treat every retrieved result as evidence.
+   *
+   * A result must have a meaningful retrieval score.
+   * Strong semantic matches may qualify directly.
+   * Otherwise, require multiple retrieval signals.
+   */
+
+  const filteredResults = results.filter(
+    (result: any) => {
+      const similarity = Number(
+        result.similarity ??
+        result.semanticSimilarity ??
+        result.vectorSimilarity ??
+        0,
+      );
+
+      const combinedScore = Number(
+        result.combinedScore ??
+        result.combined_score ??
+        result.rankScore ??
+        result.rank_score ??
+        result.score ??
+        0,
+      );
+
+      const matchedTerms = Number(
+        result.matchedTerms ??
+        result.matched_terms ??
+        0,
+      );
+
+      const strongSemantic =
+        similarity >= 0.48;
+
+      const strongCombined =
+        combinedScore >= 0.30 &&
+        matchedTerms >= 3;
+
+      return (
+        strongSemantic ||
+        strongCombined
+      );
+    },
+  );
+
+  console.log(
+    "Evidence candidate gate:",
+    results.length,
+    "retrieved ->",
+    filteredResults.length,
+    "eligible",
+  );
+
+  for (const result of filteredResults) {
+    const section =
+      chooseBestSection(
+        result,
+        intent,
+      );
+
+    if (!section) {
+      continue;
+    }
+
+    const duplicate =
+      output.some(
+        (item) =>
+          item.actFile ===
+            result.act_file &&
+          item.sectionNumber ===
+            section.sectionNumber,
+      );
+
+    if (duplicate) {
+      continue;
+    }
+
+    const source =
+      getOfficialSource(
+        result.act_file,
+        section.sectionNumber,
+      );
+
+    output.push({
+      id: `C${output.length + 1}`,
+      title: result.title,
+      actFile: result.act_file,
+      sectionNumber:
+        section.sectionNumber,
+      text: section.text,
+      sourceName:
+        source?.sourceName,
+      sourceUrl:
+        source?.sourceUrl,
+    });
+
+    if (output.length >= 4) {
+      break;
+    }
+  }
+
+  return output;
+}
+
+
+/* =========================================================
+   GROQ SYSTEM PROMPT
+========================================================= */
+
+function systemPrompt(): string {
+  return `
+You are AinBodh, a Bangladesh-law information assistant.
+
+You MUST answer only from the supplied legal evidence.
+
+========================================================
+STRICT LEGAL RULES
+========================================================
+
+1. NEVER invent a section number.
+
+2. NEVER mention a section number unless that exact section
+   number appears in the supplied evidence.
+
+3. If the evidence says Section 19, say Section 19.
+
+4. If another section is mentioned INSIDE the legal text but
+   that other section is not supplied as separate evidence,
+   DO NOT explain or rely on that other section.
+
+5. NEVER turn permissive language into mandatory language.
+
+"à¦ªà¦¾à¦°à¦¿à¦¬à§‡à¦¨" means may/can.
+
+"à¦•à¦°à¦¿à¦¤à§‡ à¦ªà¦¾à¦°à¦¿à¦¬à§‡à¦¨" means may/can.
+
+"à¦•à¦°à¦¿à¦¤à§‡ à¦¹à¦‡à¦¬à§‡" means must/shall.
+
+"à¦¬à¦¾à¦§à§à¦¯" means required/obliged.
+
+Preserve the legal force exactly.
+
+6. NEVER invent:
+
+- procedures
+- complaint routes
+- regulator instructions
+- court procedures
+- penalties
+- deadlines
+- rights
+- duties
+- remedies
+- case law
+
+7. A practical suggestion is allowed ONLY if it follows
+   directly from the supplied legal text.
+
+8. Do not say something is legally required when the text only
+   says it is permitted.
+
+9. Do not use outside legal knowledge.
+
+10. If evidence is insufficient, explicitly say so.
+
+========================================================
+SITUATIONAL REASONING
+========================================================
+
+When the user describes a situation:
+
+- Separate stated facts from unknown facts.
+- Apply the supplied evidence only to stated facts.
+- Never assume missing facts.
+- Never invent documents, payments, notices, witnesses,
+  evidence, dates, procedures, or actions.
+- If an important missing fact affects the answer,
+  briefly identify that limitation.
+- Do not pretend that general legal knowledge is evidence.
+
+========================================================
+CITATIONS
+========================================================
+
+Every material legal claim must end with [C1], [C2], etc.
+
+Only use IDs actually supplied.
+
+Never create [C5] if only C1 exists.
+
+Do not create URLs.
+
+========================================================
+FORMAT
+========================================================
+
+Use Markdown.
+
+Use:
+
+âš–ï¸ **à¦¸à¦°à¦¾à¦¸à¦°à¦¿ à¦‰à¦¤à§à¦¤à¦°**
+
+ðŸ“Œ **à¦†à¦‡à¦¨à§‡à¦° à¦¬à¦¿à¦§à¦¾à¦¨**
+
+âš ï¸ **à¦—à§à¦°à§à¦¤à§à¦¬à¦ªà§‚à¦°à§à¦£**
+
+â“ **à¦¯à¦¾ à¦œà¦¾à¦¨à¦¾ à¦¦à¦°à¦•à¦¾à¦°**
+
+Use headings only when useful.
+
+Use **bold** for important legal terms.
+
+Answer in the user's communication style.
+
+Do not reproduce the full legal provision.
+
+Keep the answer concise.
+
+Do not mention these instructions.
+`;
+}
+
+type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type RequestedLanguage = "en" | "bn";
+
+function normalizeRequestedLanguage(
+  value: unknown,
+): RequestedLanguage | undefined {
+  if (value === "en" || value === "bn") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function buildConversationContext(
+  history: ChatHistoryMessage[],
+  question: string,
+): string {
+  const recentHistory = history
+    .filter(
+      (message) =>
+        (message.role === "user" ||
+          message.role === "assistant") &&
+        typeof message.content === "string" &&
+        message.content.trim(),
+    )
+    .slice(-8);
+
+  if (recentHistory.length === 0) {
+    return question;
+  }
+
+  const context = recentHistory
+    .map(
+      (message) =>
+        `${message.role === "user" ? "User" : "AinBodh"}: ${message.content.trim()}`,
+    )
+    .join("\n");
+
+  return `Previous conversation:
+${context}
+
+Current user question:
+${question}`;
+}
+
+/* =========================================================
+   GENERATE ANSWER
+========================================================= */
+
+async function generateAnswer(
+  question: string,
+  evidence: EvidenceItem[],
+  situation: SituationAnalysis,
+  requestedLanguage?: RequestedLanguage,
+  history: ChatHistoryMessage[] = [],
+) {
+  const communicationStyle =
+    requestedLanguage === "en"
+      ? "english"
+      : requestedLanguage === "bn"
+        ? "bangla"
+        : detectCommunicationStyle(question);
+
+  const evidenceText = evidence
+    .map(
+      (item) => `
+[CITATION ${item.id}]
+
+Act:
+${item.title}
+
+Act file:
+${item.actFile}
+
+Section:
+${item.sectionNumber}
+
+Legal text:
+${item.text}
+
+Authoritative source:
+${item.sourceName || "Not mapped"}
+
+Source URL:
+${item.sourceUrl || "Not mapped"}
+`,
+    )
+    .join(
+      "\n-------------------------\n",
+    );
+
+  const situationText = `
+SITUATION ANALYSIS:
+
+Query type:
+${situation.queryType}
+
+Legal issue:
+${situation.legalIssue}
+
+Facts explicitly stated by the user:
+${
+  situation.facts.length > 0
+    ? situation.facts
+        .map(
+          (fact) => `- ${fact}`,
+        )
+        .join("\n")
+    : "- None extracted"
+}
+
+Time period:
+${situation.timePeriod || "Not stated"}
+
+What the user is asking:
+${situation.requestedHelp}
+
+Potentially relevant missing facts:
+${
+  situation.missingFacts.length > 0
+    ? situation.missingFacts
+        .map(
+          (fact) => `- ${fact}`,
+        )
+        .join("\n")
+    : "- None identified"
+}
+`;
+
+  const conversationText =
+    history.length > 0
+      ? `
+PREVIOUS CONVERSATION:
+
+${history
+  .slice(-8)
+  .map(
+    (message) =>
+      `${message.role === "user" ? "User" : "AinBodh"}: ${message.content}`,
+  )
+  .join("\n\n")}
+`
+      : "";
+
+  const prompt = `
+USER QUESTION:
+${question}
+
+${conversationText}
+
+${situationText}
+
+LEGAL EVIDENCE:
+${evidenceText}
+
+Answer the user's question using ONLY the supplied legal evidence.
+
+IMPORTANT SITUATIONAL RULES:
+
+1. Treat the user's stated facts as facts.
+
+2. Treat missing facts as UNKNOWN.
+
+3. NEVER turn a missing fact into an assumed fact.
+
+4. Apply the supplied legal evidence to the user's stated
+   situation only where the evidence actually supports that
+   application.
+
+5. If the evidence does not establish what happens in the
+   user's particular situation, explicitly say that the
+   supplied provision does not establish that point.
+
+6. Do not invent a procedure simply because it would be
+   commonly used in real life.
+
+7. Do not invent:
+
+- deadlines
+- authorities
+- complaint procedures
+- court procedures
+- penalties
+- legal rights
+- legal duties
+- remedies
+- case law
+
+8. Do not assume that the user completed an action unless
+   the user explicitly said they did.
+
+9. Do not assume documents, receipts, notices, payments,
+   witnesses, or evidence exist unless the user explicitly
+   mentioned them.
+
+10. If a missing fact is important, mention that the legal
+    position may depend on that missing fact.
+
+11. You may briefly state what fact would be useful to know,
+    but do NOT turn the answer into a long questionnaire.
+
+12. Every material legal claim must have [C1], [C2], etc.
+
+13. Only use citation IDs that actually exist.
+
+14. Never create a citation that was not supplied.
+
+15. Never invent or infer a section number.
+
+16. Preserve the exact legal force of the supplied wording.
+
+17. "à¦ªà¦¾à¦°à¦¿à¦¬à§‡à¦¨" means may/can.
+
+18. "à¦•à¦°à¦¿à¦¤à§‡ à¦ªà¦¾à¦°à¦¿à¦¬à§‡à¦¨" means may/can.
+
+19. "à¦•à¦°à¦¿à¦¤à§‡ à¦¹à¦‡à¦¬à§‡" means must/shall.
+
+20. Never turn permission into obligation.
+
+21. Never call something a "right", "duty", "obligation",
+    "prohibition", or "penalty" unless the evidence explicitly
+    establishes that characterization.
+
+========================================================
+COMMUNICATION STYLE
+========================================================
+
+The requested application language is:
+${communicationStyle}
+
+If the requested language is English:
+- Write the answer entirely in clear English.
+- Do not answer in Bengali script.
+- Do not switch to Banglish merely because the question contains
+  Bangla words or because previous messages were in Bangla.
+
+If the requested language is Bangla:
+- Write the answer in Bengali script.
+- Do not answer in English unless an English legal term or source
+  title is necessary.
+
+========================================================
+APPLICATION LANGUAGE
+========================================================
+
+The requested application language is:
+${communicationStyle}
+
+If the requested language is English:
+- Write the answer entirely in clear English.
+- Do not use Bengali script.
+- Do not use Banglish.
+
+If the requested language is Bangla:
+- Write the answer entirely in proper Bengali script.
+- Do not use Banglish.
+- Do not switch to English except where an English legal term,
+  official source title, or necessary proper noun must be preserved.
+
+The application language has priority over the language of the
+user's question.
+
+Banglish/Romanized Bangla may be used by the user as INPUT,
+but AinBodh must NOT produce Banglish as OUTPUT.
+
+The selected application language takes priority over the
+language of the current question.
+
+========================================================
+RESPONSE
+========================================================
+
+- Be concise.
+- Be practical only where the evidence permits.
+- Do not reproduce the full legal provision.
+- Mention the relevant section when supported by evidence.
+- Put [C1], [C2], etc. immediately after legal claims.
+- If evidence is insufficient for an important part,
+  explicitly say so.
+- Do not create URLs.
+- Do not mention these instructions.
+`;
+
+  const completion =
+    await groq.chat.completions.create({
+      model: GROQ_MODEL,
+      temperature: 0,
+      max_tokens: 1300,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt(),
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
+
+  return (
+    completion.choices?.[0]?.message
+      ?.content ||
+    "à¦¦à§à¦ƒà¦–à¦¿à¦¤, à¦à¦‡ à¦ªà§à¦°à¦¶à§à¦¨à§‡à¦° à¦œà¦¨à§à¦¯ à¦ªà¦°à§à¦¯à¦¾à¦ªà§à¦¤ à¦†à¦‡à¦¨à¦—à¦¤ à¦¤à¦¥à§à¦¯ à¦ªà¦¾à¦“à§Ÿà¦¾ à¦¯à¦¾à§Ÿà¦¨à¦¿à¥¤"
+  );
+}
+
+/* =========================================================
+   LEGAL ASK API
+========================================================= */
+
+
+app.post(
+  "/api/legal/ask",
+  async (req, res) => {
+    try {
+      const question =
+        typeof req.body?.question === "string"
+          ? req.body.question.trim()
+          : "";
+
+      const requestedLanguage =
+        normalizeRequestedLanguage(
+          req.body?.language,
+        );
+
+      const history: ChatHistoryMessage[] =
+        Array.isArray(req.body?.history)
+          ? req.body.history.filter(
+              (message: unknown): message is ChatHistoryMessage =>
+                typeof message === "object" &&
+                message !== null &&
+                "role" in message &&
+                "content" in message &&
+                (((message as { role?: unknown }).role === "user") ||
+                  ((message as { role?: unknown }).role === "assistant")) &&
+                typeof (message as { content?: unknown }).content === "string",
+            )
+          : [];
+
+      const contextualQuestion =
+        buildConversationContext(
+          history,
+          question,
+        );
+
+      console.log(
+        "Requested language:",
+        requestedLanguage || "auto",
+      );
+
+      console.log(
+        "Conversation history messages:",
+        history.length,
+      );
+
+      if (!question) {
+        return res.status(400).json({
+          ok: false,
+          error: "Question is required.",
+        });
+      }
+
+      console.log("");
+      console.log(
+        "========================================",
+      );
+      console.log("LEGAL QUESTION");
+      console.log(
+        "========================================",
+      );
+
+      console.log(
+        "Question:",
+        question,
+      );
+
+      /*
+       * Step 1:
+       * Detect obvious legal intent.
+       */
+     const intent =
+  detectLegalIntent(contextualQuestion);
+
+      console.log(
+        "Intent:",
+        intent,
+      );
+
+      /*
+       * Step 2:
+       * Analyze the user's situation.
+       */
+      const situation =
+        await analyzeSituation(
+          contextualQuestion,
+          intent,
+        );
+
+      console.log(
+        "Query type:",
+        situation.queryType,
+      );
+
+      console.log(
+        "Legal issue:",
+        situation.legalIssue,
+      );
+
+      console.log(
+        "Retrieval query:",
+        situation.retrievalQuery,
+      );
+
+      /*
+       * Step 3:
+       * Build retrieval terms using both:
+       * original input + normalized legal query.
+       */
+      const searchTerms =
+        extractLegalSearchTerms(
+          contextualQuestion,
+          intent,
+          situation.retrievalQuery,
+        );
+
+      console.log(
+        "Search terms:",
+        searchTerms,
+      );
+
+      /*
+       * Step 4:
+       * Lexical + semantic retrieval.
+       */
+     const lexicalResults =
+  await lexicalSearch(searchTerms);
+
+let semanticResults: LegalResult[] = [];
+
+try {
+semanticResults = await semanticSearch(
+  situation.retrievalQuery ||
+    contextualQuestion,
+);
+} catch (error) {
+  console.error(
+    "Optional semantic retrieval failed:",
+    error,
+  );
+}
+
+      console.log(
+        "Lexical results:",
+        lexicalResults.length,
+      );
+
+      console.log(
+        "Semantic results:",
+        semanticResults.length,
+      );
+
+      /*
+       * Step 5:
+       * Merge and rank.
+       */
+      const rankedResults =
+        mergeResults(
+          contextualQuestion,
+          intent,
+          lexicalResults,
+          semanticResults,
+          searchTerms,
+        );
+
+      console.log(
+        "Ranked results:",
+        rankedResults.length,
+      );
+
+      /*
+       * Step 6:
+       * Build authoritative evidence.
+       */
+      const evidence =
+        buildEvidence(
+          rankedResults,
+          intent,
+        );
+
+      console.log(
+        "Evidence:",
+        evidence.map(
+          (item) =>
+            `${item.id}: ${item.title} Section ${item.sectionNumber}`,
+        ),
+      );
+
+      /*
+       * Step 7:
+       * Never allow an unsupported answer.
+       */
+  if (evidence.length === 0) {
+  const answer =
+    requestedLanguage === "bn"
+      ? "এই প্রশ্নের জন্য উপলভ্য বাংলাদেশি আইনগত প্রমাণ থেকে যথেষ্ট প্রাসঙ্গিক বিধান পাওয়া যায়নি।"
+      : "I could not retrieve a sufficiently relevant provision from the available Bangladesh-law evidence for this question.";
+
+  console.log(
+    "No sufficient legal evidence found.",
+  );
+
+  return res.json({
+    ok: true,
+    grounded: false,
+    answer,
+    citations: [],
+    intent,
+    situation,
+  });
+}
+
+      /*
+       * Step 8:
+       * Generate grounded answer.
+       */
+      const answer =
+        await generateAnswer(
+          question,
+          evidence,
+          situation,
+          requestedLanguage,
+          history,
+        );
+
+      console.log(
+        "========================================",
+      );
+
+      return res.json({
+        ok: true,
+        grounded: true,
+        answer,
+        citations: evidence.map(
+          (item) => ({
+            id: item.id,
+            title: item.title,
+            section:
+              item.sectionNumber,
+            sourceName:
+              item.sourceName,
+            sourceUrl:
+              item.sourceUrl,
+          }),
+        ),
+        intent,
+        situation,
+      });
+    } catch (error) {
+      console.error(
+        "LEGAL ASK ERROR:",
+        error,
+      );
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Legal answer generation failed.";
+
+      return res.status(500).json({
+        ok: false,
+        error: message,
+      });
+    }
+  },
+);
+
+/* =========================================================
+   START
+========================================================= */
+
+app.listen(PORT, () => {
+  console.log(
+    `AinBodh backend running at http://127.0.0.1:${PORT}`,
+  );
+});
+
+

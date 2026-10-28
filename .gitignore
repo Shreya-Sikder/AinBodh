@@ -1,0 +1,21 @@
+# Secrets and environment configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+*.pem
+*.key
+
+# Dependencies (Already tracked via package.json)
+node_modules/
+backend/node_modules/
+dist/
+
+# Operating system files
+Thumbs.db
+.DS_Store
+
+# Git lock files
+*.lock
