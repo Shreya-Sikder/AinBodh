@@ -1,0 +1,2028 @@
+import {
+  ChangeEvent,
+  DragEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  Camera,
+  Check,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Mic,
+  Paperclip,
+  RotateCcw,
+  Scale,
+  Send,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+
+import {
+  useVoiceTranscriber,
+  type VoiceLanguage,
+} from "../hooks/useVoiceTranscriber";
+
+import { useSpeechSynthesis } from "../hooks/useSpeechSynthesis";
+
+import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../context/LanguageContext";
+import { useApp } from "../context/AppContext";
+
+import {
+  askQuestion,
+  askQuestionOffline,
+  extractDocument,
+  isOfflineDemoMode,
+} from "../services/api";
+
+type LegalCitation = {
+  id: string;
+  title: string;
+  actFile: string;
+  sectionNumber: string | null;
+  content: string;
+  sourceName?: string;
+  sourceUrl?: string;
+};
+
+export default function UploadPage() {
+  const { lang } = useLanguage();
+
+  const {
+    pendingFile,
+    pendingText,
+    setPendingInput,
+    addDocument,
+    notify,
+    setVerifiedText,
+    theme,
+  } = useApp();
+
+  const navigate = useNavigate();
+
+  const documentInputRef =
+    useRef<HTMLInputElement>(null);
+
+  const cameraInputRef =
+    useRef<HTMLInputElement>(null);
+
+  const videoRef =
+    useRef<HTMLVideoElement>(null);
+
+  const canvasRef =
+    useRef<HTMLCanvasElement>(null);
+
+  const cameraStreamRef =
+    useRef<MediaStream | null>(null);
+
+  const composerRef =
+    useRef<HTMLTextAreaElement>(null);
+
+  const [dragging, setDragging] =
+    useState(false);
+
+  const [voicePreview, setVoicePreview] =
+    useState<string | null>(null);
+
+  const [voiceEditorOpen, setVoiceEditorOpen] =
+    useState(false);
+
+  const [voiceLanguage, setVoiceLanguage] =
+    useState<VoiceLanguage>(
+      lang === "bn" ? "bn" : "en",
+    );
+
+  const [sending, setSending] =
+    useState(false);
+
+  const [cameraOpen, setCameraOpen] =
+    useState(false);
+
+  const [cameraLoading, setCameraLoading] =
+    useState(false);
+
+  const [capturedImage, setCapturedImage] =
+    useState<string | null>(null);
+
+  const [questionAsked, setQuestionAsked] =
+    useState<string | null>(null);
+
+  const [answer, setAnswer] =
+    useState<string | null>(null);
+
+  const [citations, setCitations] =
+    useState<LegalCitation[]>([]);
+
+  const [askingQuestion, setAskingQuestion] =
+    useState(false);
+
+  const [selectedCitation, setSelectedCitation] =
+    useState<LegalCitation | null>(null);
+
+  const bn = lang === "bn";
+  const dark = theme === "dark";
+  const offlineDemo =
+  isOfflineDemoMode();
+
+  /*
+   * =============================================================
+   * VOICE INPUT
+   * =============================================================
+   */
+
+  const handleVoiceTranscript = (text: string) => {
+    const transcript = text.trim();
+
+    if (!transcript) return;
+
+    setVoicePreview(transcript);
+    setVoiceEditorOpen(true);
+  };
+
+  const {
+    recording,
+    supported: voiceSupported,
+    error: voiceError,
+    start: startVoice,
+    stop: stopVoice,
+  } = useVoiceTranscriber({
+    language: voiceLanguage,
+    onTranscript: handleVoiceTranscript,
+  });
+
+  /*
+   * =============================================================
+   * READ ALOUD
+   * =============================================================
+   */
+
+  const {
+    supported: speechSupported,
+    speaking,
+    speak,
+    stop: stopSpeaking,
+  } = useSpeechSynthesis();
+
+  /*
+   * Keep voice language aligned with the app language
+   * when the user changes the application's language.
+   */
+  useEffect(() => {
+    setVoiceLanguage(
+      lang === "bn" ? "bn" : "en",
+    );
+  }, [lang]);
+
+  /*
+   * Surface speech-recognition errors through the
+   * existing AinBodh notification system.
+   */
+  useEffect(() => {
+    if (!voiceError) return;
+
+    notify(
+      bn
+        ? "ভয়েস ইনপুট নেওয়া যায়নি। আবার চেষ্টা করুন।"
+        : "Voice input failed. Please try again.",
+    );
+  }, [voiceError, bn, notify]);
+
+  /*
+   * Stop voice recording / speech / camera when
+   * leaving the page.
+   */
+  useEffect(() => {
+    return () => {
+      stopVoice();
+      stopSpeaking();
+      stopCamera();
+    };
+  }, []);
+
+  /*
+   * Detect whether an answer contains Bengali script.
+   * Bengali script gets Bengali speech synthesis;
+   * otherwise English speech synthesis is used.
+   *
+   * Banglish is intentionally read using the English
+   * speech voice because the current speech hook supports
+   * English and Bangla voices, not a separate Banglish voice.
+   */
+  const getSpeechLanguage = (
+    text: string,
+  ): "en" | "bn" => {
+    const bengaliCharacters =
+      text.match(/[\u0980-\u09FF]/g);
+
+    return bengaliCharacters &&
+      bengaliCharacters.length > 0
+      ? "bn"
+      : "en";
+  };
+
+  const toggleReadAloud = () => {
+    if (!answer) return;
+
+    if (speaking) {
+      stopSpeaking();
+      return;
+    }
+
+    if (!speechSupported) {
+      notify(
+        bn
+          ? "এই ব্রাউজারে ভয়েস পড়ে শোনানোর সুবিধা সমর্থিত নয়।"
+          : "Read-aloud is not supported in this browser.",
+      );
+      return;
+    }
+
+    const speechLanguage =
+      getSpeechLanguage(answer);
+
+    speak(answer, speechLanguage);
+  };
+
+  /*
+   * =============================================================
+   * CAMERA
+   * =============================================================
+   */
+
+  const stopCamera = () => {
+    cameraStreamRef.current
+      ?.getTracks()
+      .forEach((track) => {
+        track.stop();
+      });
+
+    cameraStreamRef.current = null;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  /*
+   * =============================================================
+   * INPUT HELPERS
+   * =============================================================
+   */
+
+  const clearCurrentAnswer = () => {
+    setQuestionAsked(null);
+    setAnswer(null);
+    setCitations([]);
+    setSelectedCitation(null);
+    stopSpeaking();
+  };
+
+  const appendText = (text: string) => {
+    const value = text.trim();
+
+    if (!value) return;
+
+    setPendingInput(
+      pendingFile,
+      pendingText.trim()
+        ? `${pendingText.trim()} ${value}`
+        : value,
+    );
+
+    clearCurrentAnswer();
+
+    window.setTimeout(() => {
+      composerRef.current?.focus();
+    }, 0);
+  };
+
+  const handleFile = (file?: File) => {
+    if (!file) return;
+
+    setPendingInput(
+      file,
+      pendingText,
+    );
+
+    clearCurrentAnswer();
+
+    notify(
+      bn
+        ? `${file.name} যোগ করা হয়েছে।`
+        : `${file.name} attached.`,
+    );
+  };
+
+  const onDrop = (
+    event: DragEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+
+    setDragging(false);
+
+    handleFile(
+      event.dataTransfer.files[0],
+    );
+  };
+
+  /*
+   * =============================================================
+   * VOICE CONTROLS
+   * =============================================================
+   */
+
+  const toggleVoice = () => {
+    if (!voiceSupported) {
+      notify(
+        bn
+          ? "এই ব্রাউজারে ভয়েস ইনপুট সমর্থিত নয়।"
+          : "Voice input is not supported in this browser.",
+      );
+      return;
+    }
+
+    if (recording) {
+      stopVoice();
+      return;
+    }
+
+    startVoice(pendingText);
+  };
+
+  const useVoiceTranscript = () => {
+    if (!voicePreview?.trim()) return;
+
+    appendText(voicePreview);
+
+    setVoicePreview(null);
+    setVoiceEditorOpen(false);
+
+    notify(
+      bn
+        ? "ভয়েস ট্রান্সক্রিপ্ট যোগ করা হয়েছে।"
+        : "Voice transcript added.",
+    );
+  };
+
+  /*
+   * =============================================================
+   * CAMERA
+   * =============================================================
+   */
+
+  const openCamera = async () => {
+    setCameraLoading(true);
+    setCapturedImage(null);
+
+    try {
+      if (
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        cameraInputRef.current?.click();
+        return;
+      }
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: "environment",
+            },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
+            },
+          },
+          audio: false,
+        });
+
+      cameraStreamRef.current = stream;
+      setCameraOpen(true);
+
+      window.setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          void videoRef.current.play();
+        }
+      }, 50);
+    } catch {
+      notify(
+        bn
+          ? "ক্যামেরা চালু করা যায়নি। ছবি আপলোড করুন।"
+          : "Camera could not be opened. You can upload an image instead.",
+      );
+
+      cameraInputRef.current?.click();
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas) return;
+
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+
+    if (!width || !height) {
+      notify(
+        bn
+          ? "ক্যামেরা এখনও প্রস্তুত নয়। একটু অপেক্ষা করুন।"
+          : "Camera is not ready yet. Please wait a moment.",
+      );
+      return;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) return;
+
+    context.drawImage(
+      video,
+      0,
+      0,
+      width,
+      height,
+    );
+
+    const image =
+      canvas.toDataURL(
+        "image/jpeg",
+        0.9,
+      );
+
+    setCapturedImage(image);
+
+    stopCamera();
+  };
+
+  const retakePhoto = async () => {
+    setCapturedImage(null);
+
+    try {
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: "environment",
+            },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
+            },
+          },
+          audio: false,
+        });
+
+      cameraStreamRef.current = stream;
+
+      window.setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          void videoRef.current.play();
+        }
+      }, 50);
+    } catch {
+      notify(
+        bn
+          ? "ক্যামেরা পুনরায় চালু করা যায়নি।"
+          : "The camera could not be restarted.",
+      );
+    }
+  };
+
+  const useCapturedPhoto = async () => {
+    if (!capturedImage) return;
+
+    try {
+      const response =
+        await fetch(capturedImage);
+
+      const blob =
+        await response.blob();
+
+      const file = new File(
+        [blob],
+        `ainbodh-scan-${Date.now()}.jpg`,
+        {
+          type: "image/jpeg",
+        },
+      );
+
+      handleFile(file);
+
+      setCapturedImage(null);
+      setCameraOpen(false);
+
+      notify(
+        bn
+          ? "ছবিটি নথিতে যোগ করা হয়েছে।"
+          : "Photo added to your document.",
+      );
+    } catch {
+      notify(
+        bn
+          ? "ছবিটি যোগ করা যায়নি। আবার চেষ্টা করুন।"
+          : "The photo could not be added. Please try again.",
+      );
+    }
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setCapturedImage(null);
+    setCameraOpen(false);
+  };
+
+  /*
+   * =============================================================
+   * CITATIONS
+   * =============================================================
+   */
+
+  const getCitationUrl = (
+    citation: LegalCitation,
+  ): string | null => {
+    const raw =
+      citation.sourceUrl?.trim();
+
+    if (!raw) return null;
+
+    const markdownMatch = raw.match(
+      /^\[.*?\]\((https?:\/\/[^)\s]+)\)$/,
+    );
+
+    const url =
+      markdownMatch?.[1] ?? raw;
+
+    if (
+      !/^https?:\/\/\S+$/i.test(url)
+    ) {
+      return null;
+    }
+
+    return url;
+  };
+
+  const renderAnswer = (
+    text: string,
+  ) => {
+    const parts =
+      text.split(/(\[C\d+\])/g);
+
+    return parts.map(
+      (part, index) => {
+        const match =
+          part.match(
+            /^\[C(\d+)\]$/,
+          );
+
+        if (!match) {
+          return (
+            <span key={index}>
+              {part}
+            </span>
+          );
+        }
+
+        const citationId =
+          `C${match[1]}`;
+
+        const citation =
+          citations.find(
+            (item) =>
+              item.id === citationId,
+          );
+
+        if (!citation) {
+          return (
+            <span key={index}>
+              {part}
+            </span>
+          );
+        }
+
+        return (
+          <button
+            key={index}
+            type="button"
+            onClick={() =>
+              setSelectedCitation(
+                citation,
+              )
+            }
+            className="mx-0.5 inline-flex items-center rounded-md border border-teal/25 bg-teal/5 px-1.5 py-0.5 text-[10px] font-bold text-teal transition hover:bg-teal/10"
+            title={
+              bn
+                ? "আইনের উৎস দেখুন"
+                : "View legal source"
+            }
+          >
+            {citationId}
+          </button>
+        );
+      },
+    );
+  };
+
+  /*
+   * =============================================================
+   * SEND
+   * =============================================================
+   */
+
+  const sendInquiry = async () => {
+    const text =
+      pendingText.trim();
+
+    if (!pendingFile && !text) {
+      notify(
+        bn
+          ? "আগে একটি নথি সংযুক্ত করুন বা আপনার প্রশ্ন লিখুন।"
+          : "Attach a document or enter your inquiry first.",
+      );
+      return;
+    }
+
+    setSending(true);
+
+    try {
+      /*
+       * DOCUMENT FLOW
+       */
+
+      if (pendingFile) {
+        const file =
+          pendingFile;
+
+        notify(
+          bn
+            ? "নথির লেখা বের করা হচ্ছে..."
+            : "Extracting text from your document...",
+        );
+
+        const extracted =
+          await extractDocument(file);
+
+        const documentType =
+          extracted.type === "pdf"
+            ? "PDF document"
+            : extracted.type === "docx"
+              ? "Word document"
+              : "Image document";
+
+        const recentDocument = {
+          id: extracted.id,
+          name: extracted.name,
+          pages: extracted.pages,
+          type: documentType,
+          size: extracted.size,
+          status:
+            "Processing" as const,
+          uploadedAt: Date.now(),
+        };
+
+        addDocument(
+          recentDocument,
+        );
+
+        setVerifiedText(
+          extracted.text,
+        );
+
+        setPendingInput(
+          null,
+          "",
+        );
+
+        clearCurrentAnswer();
+
+        navigate("/verify");
+
+        return;
+      }
+
+      /*
+       * TEXT QUESTION FLOW
+       */
+
+      if (text) {
+        setQuestionAsked(text);
+        setAnswer(null);
+        setCitations([]);
+        setSelectedCitation(null);
+        setAskingQuestion(true);
+
+        const result =
+  isOfflineDemoMode()
+    ? await askQuestionOffline(text)
+: await askQuestion(
+    text,
+    undefined,
+    [],
+    lang,
+  );
+        setAnswer(
+          result.answer,
+        );
+
+        setCitations(
+          result.citations ?? [],
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Inquiry failed:",
+        error,
+      );
+
+      notify(
+        error instanceof Error
+          ? error.message
+          : bn
+            ? "নথিটি প্রক্রিয়া করা যায়নি। আবার চেষ্টা করুন।"
+            : "The document could not be processed. Please try again.",
+      );
+    } finally {
+      setSending(false);
+      setAskingQuestion(false);
+    }
+  };
+
+  const handleComposerKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) => {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+
+      if (!sending) {
+        void sendInquiry();
+      }
+    }
+  };
+
+  return (
+    <>
+      <main
+        className={`flex min-h-[calc(100vh-80px)] flex-col transition-colors duration-200 ${
+          dark
+            ? "bg-[#0b1220]"
+            : "bg-[#faf9f5]"
+        }`}
+      >
+        {offlineDemo && (
+  <div
+    className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+      dark
+        ? "border-amber-400/30 bg-amber-400/10 text-amber-200"
+        : "border-amber-300 bg-amber-50 text-amber-800"
+    }`}
+  >
+    <div className="font-semibold">
+      Offline Demo Mode
+    </div>
+
+    <div className="mt-1 text-xs opacity-80">
+      Using locally stored demonstration cases.
+      No internet connection, backend, Supabase,
+      or external AI service is required.
+    </div>
+  </div>
+)}
+        <div className="mx-auto flex w-full max-w-[900px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-6 md:px-8 md:pt-8">
+          <div className="flex-1">
+            {/* INITIAL ASSISTANT MESSAGE */}
+
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="brand-icon flex size-10 shrink-0 items-center justify-center rounded-full sm:size-11">
+                <Scale
+                  className="size-[18px] text-white sm:size-5"
+                  strokeWidth={2}
+                />
+              </div>
+
+              <div className="min-w-0 max-w-[720px] flex-1">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span
+                    className={`text-[14px] font-bold sm:text-[15px] ${
+                      dark
+                        ? "text-[#f1f5f9]"
+                        : "text-[#172033]"
+                    } ${bn ? "bn" : ""}`}
+                  >
+                    AinBodh
+                  </span>
+
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wide ${
+                      dark
+                        ? "border-teal/35 bg-teal/10 text-[#5ee0d0]"
+                        : "border-teal/20 bg-teal/5 text-teal"
+                    }`}
+                  >
+                    AI Assistant
+                  </span>
+                </div>
+
+                <div
+                  className={`rounded-2xl border px-4 py-3.5 text-[13px] leading-6 shadow-[0_2px_12px_rgba(20,30,45,0.04)] transition-colors duration-200 sm:px-5 sm:py-4 sm:text-[14px] ${
+                    dark
+                      ? "border-teal/45 bg-[#111c2d] text-[#d8e2ec] shadow-[0_6px_22px_rgba(0,0,0,0.22)]"
+                      : "border-[#e7e4dc] bg-white text-[#263247]"
+                  } ${bn ? "bn" : ""}`}
+                >
+                  <p>
+                    {bn
+                      ? "আমি আপনার আইনি নথি সহজ ভাষায় বুঝতে, গুরুত্বপূর্ণ শর্ত ও ঝুঁকি শনাক্ত করতে এবং আইনি বিষয়গুলো ব্যাখ্যা করতে সাহায্য করতে পারি।"
+                      : "I can help you understand legal documents, explain legal terms, and identify important clauses or potential risks."}
+                  </p>
+
+                  <p className="mt-2">
+                    {bn
+                      ? "আপনি লেখা, ভয়েস, ছবি বা নথি দিয়ে আপনার বিষয়টি জানাতে পারেন।"
+                      : "You can tell me what you need using text, voice, a photo, or a document."}
+                  </p>
+
+                  <p
+                    className={`mt-2 font-semibold ${
+                      dark
+                        ? "text-[#f1f5f9]"
+                        : "text-[#172033]"
+                    }`}
+                  >
+                    {bn
+                      ? "আজ কীভাবে সাহায্য করতে পারি?"
+                      : "How can I help you today?"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* USER MESSAGE */}
+
+            {questionAsked ? (
+              <div className="mt-6 flex justify-end">
+                <div className="max-w-[76%] sm:max-w-[70%]">
+                  <div
+                    className={`rounded-2xl rounded-br-md bg-[#0d829f] px-4 py-3 text-[13px] leading-6 text-white shadow-sm sm:px-5 sm:py-3.5 sm:text-[14px] ${
+                      bn ? "bn" : ""
+                    }`}
+                  >
+                    {questionAsked}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* THINKING */}
+
+            {askingQuestion ? (
+              <div className="mt-6 flex items-start gap-3 sm:gap-4">
+                <div className="brand-icon flex size-10 shrink-0 items-center justify-center rounded-full sm:size-11">
+                  <Scale
+                    className="size-[18px] text-white sm:size-5"
+                    strokeWidth={2}
+                  />
+                </div>
+
+                <div
+                  className={`rounded-2xl rounded-tl-md border px-4 py-4 text-[13px] leading-6 sm:px-5 ${
+                    dark
+                      ? "border-teal/35 bg-[#111c2d] text-[#d8e2ec]"
+                      : "border-[#e7e4dc] bg-white text-[#263247]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin text-teal" />
+
+                    <span
+                      className={`font-semibold ${
+                        bn ? "bn" : ""
+                      }`}
+                    >
+                      {bn
+                        ? "প্রাসঙ্গিক আইনি বিধান খোঁজা হচ্ছে..."
+                        : "Checking the relevant legal provisions..."}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* ANSWER */}
+
+            {answer ? (
+              <div className="mt-6 flex items-start gap-3 sm:gap-4">
+                <div className="brand-icon flex size-10 shrink-0 items-center justify-center rounded-full sm:size-11">
+                  <Scale
+                    className="size-[18px] text-white sm:size-5"
+                    strokeWidth={2}
+                  />
+                </div>
+
+                <div className="min-w-0 max-w-[720px] flex-1">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span
+                      className={`text-[14px] font-bold sm:text-[15px] ${
+                        dark
+                          ? "text-[#f1f5f9]"
+                          : "text-[#172033]"
+                      } ${bn ? "bn" : ""}`}
+                    >
+                      AinBodh
+                    </span>
+                  </div>
+
+                  <div
+                    className={`rounded-2xl rounded-tl-md border px-4 py-4 text-[13px] leading-6 shadow-[0_2px_12px_rgba(20,30,45,0.04)] sm:px-5 sm:py-5 sm:text-[14px] ${
+                      dark
+                        ? "border-teal/35 bg-[#111c2d] text-[#d8e2ec]"
+                        : "border-[#e7e4dc] bg-white text-[#263247]"
+                    } ${bn ? "bn" : ""}`}
+                  >
+                    {/* ANSWER HEADER */}
+
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex size-7 items-center justify-center rounded-lg bg-teal/10">
+                          <Scale
+                            className="size-3.5 text-teal"
+                            strokeWidth={2.2}
+                          />
+                        </span>
+
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-teal">
+                          {bn
+                            ? "আইনি উত্তর"
+                            : "Legal Answer"}
+                        </span>
+                      </div>
+
+                      {/* READ ALOUD */}
+
+                      <button
+                        type="button"
+                        onClick={toggleReadAloud}
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition ${
+                          speaking
+                            ? "bg-teal/15 text-teal"
+                            : dark
+                              ? "text-[#91a4b8] hover:bg-white/10 hover:text-[#5ee0d0]"
+                              : "text-[#69717c] hover:bg-[#f3f2ee] hover:text-teal"
+                        }`}
+                        aria-label={
+                          speaking
+                            ? bn
+                              ? "পড়া বন্ধ করুন"
+                              : "Stop reading"
+                            : bn
+                              ? "উত্তর পড়ে শুনুন"
+                              : "Read answer aloud"
+                        }
+                        title={
+                          speaking
+                            ? bn
+                              ? "পড়া বন্ধ করুন"
+                              : "Stop reading"
+                            : bn
+                              ? "উত্তর পড়ে শুনুন"
+                              : "Read answer aloud"
+                        }
+                      >
+                        {speaking ? (
+                          <VolumeX
+                            className="size-[16px]"
+                            strokeWidth={2.1}
+                          />
+                        ) : (
+                          <Volume2
+                            className="size-[16px]"
+                            strokeWidth={2.1}
+                          />
+                        )}
+                      </button>
+                    </div>
+
+                    {/* ANSWER TEXT */}
+
+                    <div className="whitespace-pre-wrap">
+                      {renderAnswer(answer)}
+                    </div>
+
+                    {/* CITATIONS */}
+
+                    {citations.length > 0 ? (
+                      <div
+                        className={`mt-5 border-t pt-4 ${
+                          dark
+                            ? "border-white/10"
+                            : "border-[#ece9e2]"
+                        }`}
+                      >
+                        <div className="mb-3 flex items-center justify-between">
+                          <p
+                            className={`text-[10px] font-bold uppercase tracking-wide ${
+                              dark
+                                ? "text-[#9aaabd]"
+                                : "text-[#7b818b]"
+                            }`}
+                          >
+                            {bn
+                              ? "আইনের উৎস"
+                              : "Legal sources"}
+                          </p>
+
+                          <span className="text-[9px] text-[#8a8f97]">
+                            {bn
+                              ? "সরকারি/অনলাইন উৎস"
+                              : "Online legal source"}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {citations.map(
+                            (citation) => {
+                              const citationUrl =
+                                getCitationUrl(
+                                  citation,
+                                );
+
+                              return (
+                                <div
+                                  key={
+                                    citation.id
+                                  }
+                                  className={`flex items-center gap-3 rounded-xl border p-3 ${
+                                    dark
+                                      ? "border-white/10 bg-white/[0.03]"
+                                      : "border-[#e8e5de] bg-[#faf9f5]"
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedCitation(
+                                        citation,
+                                      )
+                                    }
+                                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                                  >
+                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-[10px] font-bold text-teal">
+                                      {
+                                        citation.id
+                                      }
+                                    </span>
+
+                                    <span className="min-w-0 flex-1">
+                                      <span
+                                        className={`block truncate text-[11px] font-semibold ${
+                                          dark
+                                            ? "text-[#e8f0f7]"
+                                            : "text-[#263247]"
+                                        }`}
+                                      >
+                                        {
+                                          citation.title
+                                        }
+                                      </span>
+
+                                      <span
+                                        className={`mt-0.5 block text-[9px] ${
+                                          dark
+                                            ? "text-[#91a4b8]"
+                                            : "text-[#7d8490]"
+                                        }`}
+                                      >
+                                        {bn
+                                          ? `ধারা ${
+                                              citation.sectionNumber ??
+                                              "—"
+                                            }`
+                                          : `Section ${
+                                              citation.sectionNumber ??
+                                              "—"
+                                            }`}
+                                      </span>
+                                    </span>
+                                  </button>
+
+                                  {citationUrl ? (
+                                    <a
+                                      href={
+                                        citationUrl
+                                      }
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal px-2.5 py-1.5 text-[9px] font-semibold text-white transition hover:bg-[#08768e]"
+                                      title={
+                                        bn
+                                          ? "অনলাইন আইনের উৎস খুলুন"
+                                          : "Open online legal source"
+                                      }
+                                      aria-label={
+                                        bn
+                                          ? "সরকারি অনলাইন আইনের উৎস খুলুন"
+                                          : "Open official online legal source"
+                                      }
+                                    >
+                                      <ExternalLink className="size-3" />
+
+                                      {bn
+                                        ? "উৎস"
+                                        : "Source"}
+                                    </a>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedCitation(
+                                          citation,
+                                        )
+                                      }
+                                      className="text-[9px] font-semibold text-teal"
+                                    >
+                                      {bn
+                                        ? "দেখুন"
+                                        : "View"}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* LEGAL DISCLAIMER */}
+
+                    <div
+                      className={`mt-4 border-t pt-3 text-[9px] leading-4 ${
+                        dark
+                          ? "border-white/10 text-[#74879d]"
+                          : "border-[#ece9e2] text-[#8a8f97]"
+                      }`}
+                    >
+                      {bn
+                        ? "আইনি তথ্য ব্যবহারের আগে প্রযোজ্য বর্তমান আইন ও সরকারি উৎস যাচাই করুন।"
+                        : "Verify the applicable current law and authoritative source before relying on legal information."}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* COMPOSER */}
+
+          <section className="mt-auto pt-8 sm:pt-12">
+            <div
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() =>
+                setDragging(false)
+              }
+              onDrop={onDrop}
+              className={`overflow-hidden rounded-[22px] border-2 shadow-[0_6px_30px_rgba(15,23,42,0.08)] transition-all duration-200 ${
+                dragging
+                  ? dark
+                    ? "border-[#2dd4bf] bg-[#102a2c]"
+                    : "border-teal bg-[#f1fbfa]"
+                  : dark
+                    ? "border-[#2aa99d]/70 bg-[#111c2d]"
+                    : "border-[#dcd9d1] bg-white"
+              }`}
+            >
+              <textarea
+                ref={composerRef}
+                value={pendingText}
+                onChange={(event) => {
+                  setPendingInput(
+                    pendingFile,
+                    event.target.value,
+                  );
+
+                  if (questionAsked) {
+                    clearCurrentAnswer();
+                  }
+                }}
+                onKeyDown={
+                  handleComposerKeyDown
+                }
+                rows={2}
+                className={`block max-h-[180px] min-h-[72px] w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 text-[14px] leading-6 outline-none sm:text-[15px] ${
+                  dark
+                    ? "text-[#edf4fb] placeholder:text-[#7f93aa]"
+                    : "text-[#172033] placeholder:text-[#8b9099]"
+                } ${bn ? "bn" : ""}`}
+                placeholder={
+                  bn
+                    ? "আপনার আইনি প্রশ্ন লিখুন..."
+                    : "Message AinBodh..."
+                }
+              />
+
+              {pendingFile ? (
+                <div
+                  className={`mx-3 mb-2.5 flex items-center gap-3 rounded-xl border p-2.5 ${
+                    dark
+                      ? "border-teal/30 bg-[#142637]"
+                      : "border-teal/20 bg-[#f0faf8]"
+                  }`}
+                >
+                  <div
+                    className={`flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm ${
+                      dark
+                        ? "bg-[#1c3447] text-[#5ee0d0]"
+                        : "bg-white text-teal"
+                    }`}
+                  >
+                    <FileText className="size-4" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`truncate text-[11px] font-semibold ${
+                        dark
+                          ? "text-[#e8f0f7]"
+                          : "text-[#172033]"
+                      }`}
+                    >
+                      {pendingFile.name}
+                    </p>
+
+                    <p
+                      className={`pt-0.5 text-[9px] ${
+                        dark
+                          ? "text-[#91a4b8]"
+                          : "text-[#7d8490]"
+                      }`}
+                    >
+                      {Math.max(
+                        1,
+                        Math.round(
+                          pendingFile.size /
+                            1024,
+                        ),
+                      )}{" "}
+                      KB ·{" "}
+                      {bn
+                        ? "সংযুক্ত"
+                        : "Attached"}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPendingInput(
+                        null,
+                        pendingText,
+                      )
+                    }
+                    className={`rounded-md p-1.5 transition ${
+                      dark
+                        ? "text-[#8da0b4] hover:bg-white/10 hover:text-red-400"
+                        : "text-[#777d87] hover:bg-white hover:text-red-600"
+                    }`}
+                    aria-label={
+                      bn
+                        ? "সংযুক্তি সরান"
+                        : "Remove attachment"
+                    }
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                className={`flex items-center gap-1 border-t px-3 py-2.5 ${
+                  dark
+                    ? "border-teal/25"
+                    : "border-[#ece9e2]"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    documentInputRef.current?.click()
+                  }
+                  className={`flex size-9 items-center justify-center rounded-lg transition ${
+                    dark
+                      ? "text-[#91a4b8] hover:bg-white/10 hover:text-[#5ee0d0]"
+                      : "text-[#5e6673] hover:bg-[#f3f2ee] hover:text-teal"
+                  }`}
+                  aria-label={
+                    bn
+                      ? "নথি সংযুক্ত করুন"
+                      : "Attach document"
+                  }
+                  title={
+                    bn
+                      ? "নথি সংযুক্ত করুন"
+                      : "Attach document"
+                  }
+                >
+                  <Paperclip
+                    className="size-[18px]"
+                    strokeWidth={2.1}
+                  />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    void openCamera()
+                  }
+                  disabled={cameraLoading}
+                  className={`flex size-9 items-center justify-center rounded-lg transition disabled:opacity-50 ${
+                    dark
+                      ? "text-[#91a4b8] hover:bg-white/10 hover:text-[#5ee0d0]"
+                      : "text-[#5e6673] hover:bg-[#f3f2ee] hover:text-teal"
+                  }`}
+                  aria-label={
+                    bn
+                      ? "ছবি তুলুন"
+                      : "Scan document"
+                  }
+                  title={
+                    bn
+                      ? "ছবি তুলুন"
+                      : "Scan document"
+                  }
+                >
+                  {cameraLoading ? (
+                    <Loader2 className="size-[18px] animate-spin" />
+                  ) : (
+                    <Camera
+                      className="size-[18px]"
+                      strokeWidth={2.1}
+                    />
+                  )}
+                </button>
+
+                {/* VOICE BUTTON */}
+
+                <button
+                  type="button"
+                  onClick={toggleVoice}
+                  className={`flex size-9 items-center justify-center rounded-lg transition ${
+                    recording
+                      ? "bg-red-500/10 !text-red-400"
+                      : dark
+                        ? "text-[#91a4b8] hover:bg-white/10 hover:text-[#5ee0d0]"
+                        : "text-[#5e6673] hover:bg-[#f3f2ee] hover:text-teal"
+                  }`}
+                  aria-label={
+                    recording
+                      ? bn
+                        ? "ভয়েস রেকর্ডিং বন্ধ করুন"
+                        : "Stop voice input"
+                      : bn
+                        ? "ভয়েস ইনপুট"
+                        : "Voice input"
+                  }
+                  title={
+                    recording
+                      ? bn
+                        ? "ভয়েস রেকর্ডিং বন্ধ করুন"
+                        : "Stop voice input"
+                      : bn
+                        ? "ভয়েস ইনপুট"
+                        : "Voice input"
+                  }
+                >
+                  <Mic
+                    className={`size-[18px] ${
+                      recording
+                        ? "animate-pulse"
+                        : ""
+                    }`}
+                    strokeWidth={2.1}
+                  />
+                </button>
+
+                <input
+                  ref={documentInputRef}
+                  type="file"
+                  hidden
+                  accept=".pdf,.docx,image/png,image/jpeg,image/webp"
+                  onChange={(
+                    event: ChangeEvent<HTMLInputElement>,
+                  ) => {
+                    handleFile(
+                      event.target.files?.[0],
+                    );
+
+                    event.target.value = "";
+                  }}
+                />
+
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(
+                    event: ChangeEvent<HTMLInputElement>,
+                  ) => {
+                    handleFile(
+                      event.target.files?.[0],
+                    );
+
+                    event.target.value = "";
+                  }}
+                />
+
+                <div className="flex-1" />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    void sendInquiry()
+                  }
+                  disabled={sending}
+                  className="flex size-9 items-center justify-center rounded-full bg-teal text-white shadow-sm transition hover:bg-[#08768e] disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={
+                    bn
+                      ? "পাঠান"
+                      : "Send inquiry"
+                  }
+                  title={
+                    bn
+                      ? "পাঠান"
+                      : "Send inquiry"
+                  }
+                >
+                  {sending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <p
+              className={`mt-2.5 text-center text-[9px] ${
+                dark
+                  ? "text-[#74879d]"
+                  : "text-[#8a8f97]"
+              } ${bn ? "bn" : ""}`}
+            >
+              {bn
+                ? "Enter চাপলে পাঠানো হবে · নতুন লাইনের জন্য Shift + Enter"
+                : "Press Enter to send · Shift + Enter for a new line"}
+            </p>
+          </section>
+        </div>
+      </main>
+
+      {/* =========================================================
+          CAMERA MODAL
+      ========================================================= */}
+
+      {cameraOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07111f]/90 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border-2 border-teal/40 bg-[#101d31] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/15 px-4 py-3">
+              <div>
+                <p
+                  className={`text-[13px] font-semibold text-white ${
+                    bn ? "bn" : ""
+                  }`}
+                >
+                  {bn
+                    ? "নথি স্ক্যান করুন"
+                    : "Scan document"}
+                </p>
+
+                <p className="mt-0.5 text-[9px] text-white/55">
+                  {bn
+                    ? "নথিটি ফ্রেমের মধ্যে রাখুন"
+                    : "Keep the document inside the frame"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeCamera}
+                className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white"
+                aria-label="Close camera"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="relative aspect-[4/3] bg-black">
+              {!capturedImage ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    muted
+                    playsInline
+                    className="h-full w-full object-cover"
+                  />
+
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="relative h-[72%] w-[82%] rounded-xl border-2 border-[#5ee0d0] shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]">
+                      <span className="absolute -left-0.5 -top-0.5 h-7 w-7 border-l-4 border-t-4 border-[#5ee0d0]" />
+                      <span className="absolute -right-0.5 -top-0.5 h-7 w-7 border-r-4 border-t-4 border-[#5ee0d0]" />
+                      <span className="absolute -bottom-0.5 -left-0.5 h-7 w-7 border-b-4 border-l-4 border-[#5ee0d0]" />
+                      <span className="absolute -bottom-0.5 -right-0.5 h-7 w-7 border-b-4 border-r-4 border-[#5ee0d0]" />
+
+                      <div className="absolute left-0 right-0 top-1/2 h-px bg-[#5ee0d0]/50" />
+                    </div>
+                  </div>
+
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1.5 text-[9px] text-white/85 backdrop-blur">
+                    {bn
+                      ? "ভালো আলোতে ছবি তুলুন"
+                      : "Use good lighting for a clearer scan"}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <img
+                    src={capturedImage}
+                    alt={
+                      bn
+                        ? "ধারণ করা নথির ছবি"
+                        : "Captured document"
+                    }
+                    className="h-full w-full object-contain"
+                  />
+
+                  <div className="absolute left-3 top-3 rounded-full bg-[#0d829f] px-3 py-1.5 text-[9px] font-semibold text-white shadow-lg">
+                    {bn
+                      ? "প্রিভিউ"
+                      : "Preview"}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <canvas
+              ref={canvasRef}
+              className="hidden"
+            />
+
+            <div className="flex items-center justify-center gap-3 px-4 py-4">
+              {!capturedImage ? (
+                <button
+                  type="button"
+                  onClick={capturePhoto}
+                  className="flex size-14 items-center justify-center rounded-full border-2 border-white/30 bg-white text-[#101d31] shadow-lg transition-transform hover:scale-105 active:scale-95"
+                  aria-label={
+                    bn
+                      ? "ছবি তুলুন"
+                      : "Capture photo"
+                  }
+                >
+                  <Camera
+                    className="size-6"
+                    strokeWidth={2.5}
+                  />
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void retakePhoto()
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-[11px] font-semibold text-white hover:bg-white/15"
+                  >
+                    <RotateCcw className="size-4" />
+
+                    {bn
+                      ? "আবার তুলুন"
+                      : "Retake"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void useCapturedPhoto()
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#0d829f] px-5 py-3 text-[11px] font-semibold text-white hover:bg-[#1191ad]"
+                  >
+                    <Check className="size-4" />
+
+                    {bn
+                      ? "ছবিটি ব্যবহার করুন"
+                      : "Use Photo"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* =========================================================
+          VOICE EDITOR
+      ========================================================= */}
+
+      {voiceEditorOpen ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#07111f]/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[480px] rounded-2xl border-2 border-teal/35 bg-[#111f38] p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#173f48] text-[#5ee0d0]">
+                <Mic className="size-5" />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <h2
+                  className={`text-[15px] font-bold text-white ${
+                    bn ? "bn" : ""
+                  }`}
+                >
+                  {bn
+                    ? "আপনি যা বলেছেন"
+                    : "Review your voice input"}
+                </h2>
+
+                <p
+                  className={`mt-1 text-[10px] leading-4 text-slate-400 ${
+                    bn ? "bn" : ""
+                  }`}
+                >
+                  {bn
+                    ? "প্রয়োজনে পাঠানোর আগে কথাগুলো সম্পাদনা করুন।"
+                    : "Check or edit the transcript before sending it."}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceEditorOpen(
+                    false,
+                  );
+                  setVoicePreview(null);
+                }}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+                aria-label={
+                  bn
+                    ? "বন্ধ করুন"
+                    : "Close"
+                }
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* LANGUAGE SELECTOR */}
+
+            <div className="mt-5">
+              <p className="mb-2 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                {bn
+                  ? "ভয়েস ভাষা"
+                  : "Voice language"}
+              </p>
+
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    ["bn", "বাংলা"],
+                    ["en", "English"],
+                    ["banglish", "Banglish"],
+                  ] as const
+                ).map(
+                  ([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={recording}
+                      onClick={() =>
+                        setVoiceLanguage(
+                          value,
+                        )
+                      }
+                      className={`rounded-lg border px-2 py-2 text-[10px] font-semibold transition ${
+                        voiceLanguage ===
+                        value
+                          ? "border-teal bg-teal/15 text-[#5ee0d0]"
+                          : "border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
+
+            <textarea
+              value={
+                voicePreview ?? ""
+              }
+              onChange={(event) =>
+                setVoicePreview(
+                  event.target.value,
+                )
+              }
+              autoFocus
+              className={`mt-4 min-h-[130px] w-full resize-none rounded-xl border-2 border-teal/35 bg-[#0b1728] p-3 text-[13px] leading-6 text-white outline-none placeholder:text-slate-500 focus:border-teal ${
+                bn ? "bn" : ""
+              }`}
+              placeholder={
+                bn
+                  ? "আপনার কথাগুলো এখানে দেখা যাবে..."
+                  : "Your transcript will appear here..."
+              }
+            />
+
+            <div className="mt-4 flex justify-between gap-2">
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-semibold transition ${
+                  recording
+                    ? "border-red-400/30 bg-red-500/10 text-red-300"
+                    : "border-teal/30 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <Mic
+                  className={`size-3.5 ${
+                    recording
+                      ? "animate-pulse"
+                      : ""
+                  }`}
+                />
+
+                {recording
+                  ? bn
+                    ? "বন্ধ করুন"
+                    : "Stop"
+                  : bn
+                    ? "আবার বলুন"
+                    : "Record again"}
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoiceEditorOpen(
+                      false,
+                    );
+                    setVoicePreview(null);
+                  }}
+                  className="h-10 rounded-lg border border-teal/30 px-4 text-[11px] font-semibold text-slate-300 transition hover:bg-white/10"
+                >
+                  {bn
+                    ? "বাতিল"
+                    : "Cancel"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    useVoiceTranscript
+                  }
+                  disabled={
+                    !voicePreview?.trim()
+                  }
+                  className="inline-flex h-10 items-center rounded-lg bg-teal px-4 text-[11px] font-semibold text-white transition hover:bg-[#08768e] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Check className="mr-1.5 size-3.5" />
+
+                  {bn
+                    ? "ব্যবহার করুন"
+                    : "Use Transcript"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* =========================================================
+          CITATION MODAL
+      ========================================================= */}
+
+      {selectedCitation ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#07111f]/75 p-4 backdrop-blur-sm"
+          onClick={() =>
+            setSelectedCitation(null)
+          }
+        >
+          <div
+            className={`max-h-[85vh] w-full max-w-[680px] overflow-hidden rounded-2xl border shadow-2xl ${
+              dark
+                ? "border-teal/30 bg-[#111c2d]"
+                : "border-[#ddd9d0] bg-white"
+            }`}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div
+              className={`flex items-start justify-between border-b px-5 py-4 ${
+                dark
+                  ? "border-white/10"
+                  : "border-[#ece9e2]"
+              }`}
+            >
+              <div className="min-w-0 pr-4">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-teal/10 text-[11px] font-bold text-teal">
+                    {
+                      selectedCitation.id
+                    }
+                  </span>
+
+                  <div>
+                    <h2
+                      className={`text-[14px] font-bold ${
+                        dark
+                          ? "text-[#f1f5f9]"
+                          : "text-[#172033]"
+                      }`}
+                    >
+                      {
+                        selectedCitation.title
+                      }
+                    </h2>
+
+                    <p
+                      className={`mt-0.5 text-[10px] ${
+                        dark
+                          ? "text-[#91a4b8]"
+                          : "text-[#7d8490]"
+                      }`}
+                    >
+                      {bn
+                        ? `ধারা ${
+                            selectedCitation.sectionNumber ??
+                            "—"
+                          }`
+                        : `Section ${
+                            selectedCitation.sectionNumber ??
+                            "—"
+                          }`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedCitation(
+                    null,
+                  )
+                }
+                className={`rounded-lg p-2 ${
+                  dark
+                    ? "text-[#91a4b8] hover:bg-white/10 hover:text-white"
+                    : "text-[#737985] hover:bg-[#f3f2ee] hover:text-[#172033]"
+                }`}
+                aria-label={
+                  bn
+                    ? "বন্ধ করুন"
+                    : "Close"
+                }
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] overflow-y-auto px-5 py-5">
+              <div
+                className={`mb-4 rounded-xl border p-3 ${
+                  dark
+                    ? "border-teal/20 bg-teal/5"
+                    : "border-teal/15 bg-[#f4fbfa]"
+                }`}
+              >
+                <p
+                  className={`text-[9px] font-bold uppercase tracking-wide text-teal ${
+                    bn ? "bn" : ""
+                  }`}
+                >
+                  {bn
+                    ? "আইনের উৎস"
+                    : "Legal source"}
+                </p>
+
+                <p
+                  className={`mt-1 text-[10px] leading-5 ${
+                    dark
+                      ? "text-[#9fb0c2]"
+                      : "text-[#6f7580]"
+                  }`}
+                >
+                  {selectedCitation.sourceName ||
+                    selectedCitation.title}
+                </p>
+
+                {getCitationUrl(
+                  selectedCitation,
+                ) ? (
+                  <a
+                    href={
+                      getCitationUrl(
+                        selectedCitation,
+                      ) ?? undefined
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-teal px-3 py-2 text-[10px] font-semibold text-white transition hover:bg-[#08768e]"
+                  >
+                    <ExternalLink className="size-3.5" />
+
+                    {bn
+                      ? "সরকারি অনলাইন উৎস খুলুন"
+                      : "Open official online source"}
+                  </a>
+                ) : null}
+              </div>
+
+              <div
+                className={`whitespace-pre-wrap rounded-xl border p-4 text-[12px] leading-6 ${
+                  dark
+                    ? "border-white/10 bg-[#0b1728] text-[#d8e2ec]"
+                    : "border-[#e8e5de] bg-[#faf9f5] text-[#263247]"
+                } ${bn ? "bn" : ""}`}
+              >
+                {
+                  selectedCitation.content
+                }
+              </div>
+            </div>
+
+            <div
+              className={`flex justify-end gap-2 border-t px-5 py-3 ${
+                dark
+                  ? "border-white/10"
+                  : "border-[#ece9e2]"
+              }`}
+            >
+              {getCitationUrl(
+                selectedCitation,
+              ) ? (
+                <a
+                  href={
+                    getCitationUrl(
+                      selectedCitation,
+                    ) ?? undefined
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-teal px-4 py-2 text-[11px] font-semibold text-white transition hover:bg-[#08768e]"
+                >
+                  <ExternalLink className="size-3.5" />
+
+                  {bn
+                    ? "উৎস খুলুন"
+                    : "Open source"}
+                </a>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedCitation(
+                    null,
+                  )
+                }
+                className="rounded-lg border border-slate-300 px-4 py-2 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                {bn
+                  ? "বন্ধ করুন"
+                  : "Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}

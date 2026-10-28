@@ -1,0 +1,31 @@
+export const faqs = {
+  en: [
+    { question: "What is AinBodh?", answer: "AinBodh is an AI-powered Bangla-English assistant that helps citizens understand legal documents in simpler language." },
+    { question: "Can AinBodh provide legal advice?", answer: "No. AinBodh explains information from the provided document and highlights areas to review. It is not a replacement for qualified legal advice." },
+    { question: "Are my documents stored?", answer: "The interface is designed around a privacy-first workflow. The production backend must define retention, deletion, encryption, and access policies." },
+    { question: "What document types are supported?", answer: "The frontend supports the workflow for PDF, DOC, DOCX, images, pasted text, and voice input." },
+    { question: "Can I use AinBodh in Bangla?", answer: "Yes. The UI, analysis labels, questions, and read-aloud controls support Bangla and English." },
+    { question: "Can I ask questions about my document?", answer: "Yes. The document chat interface is designed to answer from the selected document and expose supporting references." },
+    { question: "Can AinBodh tell me whether to sign?", answer: "No. It can identify attention areas and questions to clarify, but the user makes their own informed decision." },
+    { question: "What does 'Not found in the provided document' mean?", answer: "It means the relevant information was not identified in the provided document. It does not by itself mean the information is legally required." },
+    { question: "What is a potential contradiction?", answer: "It is a finding where two parts of the provided document appear inconsistent and may need human clarification." },
+    { question: "Can I compare multiple documents?", answer: "The frontend includes a cross-document comparison workflow. The backend should supply extracted facts and evidence from each document." },
+    { question: "Can AinBodh explain legal terms?", answer: "Yes. The analysis page includes a legal-term explanation area with plain-language definitions and document context." },
+    { question: "Can AinBodh read explanations aloud?", answer: "Yes. The browser speech synthesis API powers the current frontend demo. A production system can replace or supplement it with a dedicated voice service." },
+  ],
+  bn: [
+    { question: "AinBodh কী?", answer: "AinBodh একটি AI-চালিত বাংলা-ইংরেজি সহায়ক, যা নাগরিকদের আইনি নথি সহজ ভাষায় বুঝতে সাহায্য করে।" },
+    { question: "AinBodh কি আইনি পরামর্শ দিতে পারে?", answer: "না। এটি প্রদত্ত নথির তথ্য ব্যাখ্যা করে এবং পর্যালোচনার ক্ষেত্র দেখায়। এটি যোগ্য আইনি পরামর্শের বিকল্প নয়।" },
+    { question: "আমার নথি কি সংরক্ষণ করা হয়?", answer: "ইন্টারফেসটি গোপনীয়তা-কেন্দ্রিক। চূড়ান্ত ব্যাকএন্ডে সংরক্ষণ, মুছে ফেলা, এনক্রিপশন ও অ্যাক্সেস নীতি প্রয়োগ করতে হবে।" },
+    { question: "কোন নথি সমর্থিত?", answer: "ফ্রন্টএন্ডে PDF, DOC, DOCX, ছবি, লেখা ও ভয়েস ইনপুটের ওয়ার্কফ্লো রয়েছে।" },
+    { question: "আমি কি বাংলায় ব্যবহার করতে পারি?", answer: "হ্যাঁ। ইন্টারফেস, বিশ্লেষণ, প্রশ্ন ও পড়ে শোনানোর সুবিধা বাংলা ও ইংরেজি সমর্থন করে।" },
+    { question: "আমি কি নথি সম্পর্কে প্রশ্ন করতে পারি?", answer: "হ্যাঁ। নথি-ভিত্তিক চ্যাট ইন্টারফেস নির্বাচিত নথির তথ্যের ভিত্তিতে উত্তর এবং রেফারেন্স দেখানোর জন্য তৈরি।" },
+    { question: "AinBodh কি আমাকে স্বাক্ষর করতে বলবে?", answer: "না। এটি মনোযোগের বিষয় ও স্পষ্ট করার প্রশ্ন দেখাতে পারে; সিদ্ধান্ত ব্যবহারকারী নিজে নেবেন।" },
+    { question: "'নথিতে পাওয়া যায়নি' মানে কী?", answer: "এর অর্থ প্রদত্ত নথিতে প্রাসঙ্গিক তথ্য শনাক্ত করা যায়নি। এর অর্থ এই নয় যে তথ্যটি আইনগতভাবে অবশ্যই প্রয়োজনীয়।" },
+    { question: "সম্ভাব্য অসংগতি কী?", answer: "নথির দুই অংশে তথ্য পরস্পর অসামঞ্জস্যপূর্ণ মনে হলে সেটিকে সম্ভাব্য অসংগতি হিসেবে দেখানো হয়।" },
+    { question: "একাধিক নথি কি তুলনা করা যাবে?", answer: "ফ্রন্টএন্ডে ক্রস-ডকুমেন্ট তুলনার ওয়ার্কফ্লো রয়েছে। ব্যাকএন্ডকে প্রতিটি নথির তথ্য ও প্রমাণ দিতে হবে।" },
+    { question: "AinBodh কি আইনি শব্দ ব্যাখ্যা করতে পারে?", answer: "হ্যাঁ। বিশ্লেষণ পাতায় সহজ ভাষায় আইনি শব্দের ব্যাখ্যা ও নথিতে তার প্রেক্ষাপট দেখানো হয়।" },
+    { question: "ব্যাখ্যা কি পড়ে শোনানো যায়?", answer: "হ্যাঁ। বর্তমান ফ্রন্টএন্ড ব্রাউজারের speech synthesis ব্যবহার করে। প্রোডাকশনে আলাদা voice service যোগ করা যাবে।" },
+  ],
+};
+

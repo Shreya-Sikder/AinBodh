@@ -1,0 +1,1002 @@
+import type { RecentDocument } from "../context/AppContext";
+
+/* =========================================================
+   ANALYSIS TYPES
+========================================================= */
+
+export type AnalysisResponse = {
+  document: RecentDocument;
+  overview: string;
+
+  keyPoints: Array<{
+    icon: string;
+    label: string;
+    value: string;
+    citation?: string;
+  }>;
+
+  attention: Array<{
+    level: "high" | "review" | "info";
+    title: string;
+    body: string;
+    citation?: string;
+  }>;
+
+  contradictions: Array<{
+    title: string;
+    body: string;
+    citations: string[];
+  }>;
+
+  missing: Array<{
+    title: string;
+    body: string;
+  }>;
+
+  terms: Array<{
+    term: string;
+    simple: string;
+    inDocument: string;
+    citation: string;
+  }>;
+};
+
+/* =========================================================
+   LEGAL CITATIONS
+========================================================= */
+
+export type LegalCitation = {
+  id: string;
+  title: string;
+  actFile: string;
+  sectionNumber: string | null;
+  content: string;
+  sourceName?: string;
+  sourceUrl?: string;
+};
+
+/* =========================================================
+   CHAT
+========================================================= */
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatResponse = {
+  answer: string;
+  citations: LegalCitation[];
+  grounded?: boolean;
+};
+
+/* =========================================================
+   COMPARE
+========================================================= */
+
+export type CompareDocumentInput = {
+  name: string;
+  text: string;
+};
+
+export type CompareFinding = {
+  topic: string;
+
+  status:
+    | "consistent"
+    | "different"
+    | "potential_conflict"
+    | "not_found";
+
+  documents: Array<{
+    documentName: string;
+    excerpt: string;
+  }>;
+
+  explanation: string;
+};
+
+export type CompareResponse = {
+  findings: CompareFinding[];
+
+  summary: {
+    documentsCompared: number;
+    consistent: number;
+    different: number;
+    potentialConflicts: number;
+    notFound: number;
+  };
+};
+
+/* =========================================================
+   API
+========================================================= */
+
+const API_BASE_URL =
+  "http://127.0.0.1:5000";
+
+const USER_STORAGE_KEY =
+  "AinBodh-user";
+
+const sleep = (ms: number) =>
+  new Promise((resolve) =>
+    window.setTimeout(
+      resolve,
+      ms,
+    ),
+  );
+
+/* =========================================================
+   AUTHENTICATION
+   ---------------------------------------------------------
+   Frontend prototype authentication.
+
+   Account information is stored locally in the browser.
+   This allows the login flow to work without internet.
+
+   This is NOT production-grade authentication.
+========================================================= */
+
+type StoredUser = {
+  name: string;
+  email: string;
+};
+
+function saveUser(
+  user: StoredUser,
+) {
+  localStorage.setItem(
+    USER_STORAGE_KEY,
+    JSON.stringify(user),
+  );
+}
+
+function loadUser(): StoredUser | null {
+  try {
+    const saved =
+      localStorage.getItem(
+        USER_STORAGE_KEY,
+      );
+
+    if (!saved) {
+      return null;
+    }
+
+    const parsed =
+      JSON.parse(saved);
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.name !== "string" ||
+      typeof parsed.email !== "string"
+    ) {
+      return null;
+    }
+
+    const name =
+      parsed.name.trim();
+
+    const email =
+      parsed.email.trim();
+
+    if (!name || !email) {
+      return null;
+    }
+
+    return {
+      name,
+      email,
+    };
+  } catch {
+    localStorage.removeItem(
+      USER_STORAGE_KEY,
+    );
+
+    return null;
+  }
+}
+
+/* =========================================================
+   SIGN UP
+========================================================= */
+
+export async function signup(
+  name: string,
+  email: string,
+  password: string,
+) {
+  await sleep(450);
+
+  const cleanName =
+    name.trim();
+
+  const cleanEmail =
+    email.trim().toLowerCase();
+
+  if (
+    !cleanName ||
+    !cleanEmail ||
+    !password
+  ) {
+    throw new Error(
+      "All fields are required.",
+    );
+  }
+
+  if (password.length < 6) {
+    throw new Error(
+      "Password must be at least 6 characters.",
+    );
+  }
+
+  /*
+   * Current prototype authentication is local.
+   *
+   * We intentionally do NOT store the password.
+   * The account identity is enough for the current
+   * prototype login flow.
+   */
+  const user: StoredUser = {
+    name: cleanName,
+    email: cleanEmail,
+  };
+
+  saveUser(user);
+
+  return {
+    ok: true,
+
+    offline: true,
+
+    user: {
+      name: user.name,
+      email: user.email,
+    },
+  };
+}
+
+/* =========================================================
+   LOGIN
+========================================================= */
+
+export async function login(
+  email: string,
+  password: string,
+) {
+  await sleep(250);
+
+  const cleanEmail =
+    email.trim().toLowerCase();
+
+  if (
+    !cleanEmail ||
+    !password
+  ) {
+    throw new Error(
+      "Email and password are required.",
+    );
+  }
+
+  /* =======================================================
+     OFFLINE DEMO ACCOUNT
+     -------------------------------------------------------
+     This account works on a fresh browser/computer
+     without internet and without prior signup.
+  ======================================================= */
+
+  if (
+    cleanEmail ===
+      "demo@ainbodh.local" &&
+    password === "demo1234"
+  ) {
+    const demoUser: StoredUser = {
+      name: "AinBodh Demo User",
+      email: "demo@ainbodh.local",
+    };
+
+    saveUser(demoUser);
+
+    return {
+      ok: true,
+
+      offline: true,
+
+      user: {
+        name: demoUser.name,
+        email: demoUser.email,
+      },
+    };
+  }
+
+  /* =======================================================
+     NORMAL LOCAL ACCOUNT
+     -------------------------------------------------------
+     Accounts created through signup are stored locally,
+     so they continue working without internet.
+  ======================================================= */
+
+  const savedUser =
+    loadUser();
+
+  if (!savedUser) {
+    throw new Error(
+      "No account was found. Please sign up first, or use the Offline Demo account.",
+    );
+  }
+
+  if (
+    savedUser.email.toLowerCase() !==
+    cleanEmail
+  ) {
+    throw new Error(
+      "No account was found for this email. Please sign up first, or use the Offline Demo account.",
+    );
+  }
+
+  /*
+   * Passwords are intentionally not persisted in this
+   * prototype, so the password is currently validated
+   * only for presence.
+   *
+   * Real authentication should use a secure backend
+   * or authentication provider before production.
+   */
+
+  return {
+    ok: true,
+
+    offline: true,
+
+    user: {
+      name: savedUser.name,
+      email: savedUser.email,
+    },
+  };
+}
+
+/* =========================================================
+   UPLOAD DOCUMENT
+========================================================= */
+
+export async function uploadDocument(
+  file: File,
+) {
+  await sleep(300);
+
+  return {
+    id: `doc-${Date.now()}`,
+    name: file.name,
+
+    /*
+     * NOTE:
+     * Page count is still a temporary fallback.
+     * Real PDF/page extraction should replace this.
+     */
+    pages: 8,
+
+    type: file.type.includes("pdf")
+      ? "PDF document"
+      : "Uploaded document",
+
+    size: file.size,
+
+    status:
+      "Processing" as const,
+
+    uploadedAt:
+      Date.now(),
+  };
+}
+
+/* =========================================================
+   ANALYZE DOCUMENT
+   ---------------------------------------------------------
+   Existing prototype response.
+   This is not yet connected to the real
+   document-analysis backend.
+========================================================= */
+
+export async function analyzeDocument(
+  _input: {
+    file?: File | null;
+    text: string;
+    language: "en" | "bn";
+  },
+): Promise<AnalysisResponse> {
+  await sleep(900);
+
+  return {
+    document: {
+      id: `analysis-${Date.now()}`,
+
+      name:
+        "Residential Rental Agreement.pdf",
+
+      pages: 8,
+
+      type:
+        "Rental Agreement",
+
+      status:
+        "Reviewed",
+
+      uploadedAt:
+        Date.now(),
+    },
+
+    overview:
+      "This is a residential rental agreement between a landlord and a tenant for a one-year period. It sets out monthly rent of ৳25,000, a security deposit of ৳50,000, and a late-payment penalty of ৳500 per day. Either party may end the agreement with 30 days' written notice. Some conditions — including early termination consequences and the deposit return process — are not fully specified in the document.",
+
+    keyPoints: [
+      {
+        icon: "📅",
+
+        label:
+          "Contract Period",
+
+        value:
+          "1 January 2026 → 31 December 2026",
+
+        citation:
+          "Page 1 · Section 2",
+      },
+
+      {
+        icon: "💰",
+
+        label:
+          "Monthly Rent",
+
+        value:
+          "৳25,000 / month",
+      },
+
+      {
+        icon: "💵",
+
+        label:
+          "Security Deposit",
+
+        value:
+          "৳50,000",
+
+        citation:
+          "Page 2 · Section 4",
+      },
+
+      {
+        icon: "⚠️",
+
+        label:
+          "Late Payment Penalty",
+
+        value:
+          "৳500 per day",
+      },
+
+      {
+        icon: "📄",
+
+        label:
+          "Termination Notice",
+
+        value:
+          "Either party must provide 30 days' written notice.",
+
+        citation:
+          "Page 5 · Section 9",
+      },
+
+      {
+        icon: "❓",
+
+        label:
+          "Early Termination Penalty",
+
+        value:
+          "Not clearly specified in the document.",
+      },
+    ],
+
+    attention: [
+      {
+        level:
+          "high",
+
+        title:
+          "Early termination conditions are unclear",
+
+        body:
+          "The agreement describes termination notice requirements but does not clearly explain whether an additional penalty applies if either party ends the contract early.",
+
+        citation:
+          "Page 5 · Section 9",
+      },
+
+      {
+        level:
+          "review",
+
+        title:
+          "Security deposit return conditions",
+
+        body:
+          "The document describes the security deposit amount but does not clearly state the conditions or timeline for its return at the end of the tenancy.",
+
+        citation:
+          "Page 2 · Section 4",
+      },
+
+      {
+        level:
+          "info",
+
+        title:
+          "No clear dispute-resolution process found",
+
+        body:
+          "The agreement does not appear to include a process for resolving disputes between the landlord and tenant.",
+      },
+    ],
+
+    contradictions: [
+      {
+        title:
+          "Contract start date appears inconsistent",
+
+        body:
+          "Page 1 says the agreement starts on 1 January 2026, while a termination section refers to 1 February 2026. These dates appear inconsistent and may need clarification.",
+
+        citations: [
+          "Page 1 · Section 2",
+          "Page 6 · Section 9",
+        ],
+      },
+    ],
+
+    missing: [
+      {
+        title:
+          "Dispute Resolution",
+
+        body:
+          "No clear dispute-resolution procedure was identified in the document.",
+      },
+
+      {
+        title:
+          "Early Termination",
+
+        body:
+          "The agreement does not clearly explain the consequences of ending the contract before the agreed period.",
+      },
+    ],
+
+    terms: [
+      {
+        term:
+          "Indemnification",
+
+        simple:
+          "One party agrees to protect the other from certain losses or legal claims.",
+
+        inDocument:
+          "The tenant may have responsibility for losses caused by actions connected to the property.",
+
+        citation:
+          "Page 6 · Section 12",
+      },
+
+      {
+        term:
+          "Liability",
+
+        simple:
+          "Responsibility for a loss, damage, or legal obligation.",
+
+        inDocument:
+          "The document assigns responsibility for certain property-related losses.",
+
+        citation:
+          "Page 6 · Section 12",
+      },
+
+      {
+        term:
+          "Termination",
+
+        simple:
+          "Ending the agreement under the conditions written in it.",
+
+        inDocument:
+          "Either party may end the agreement with written notice.",
+
+        citation:
+          "Page 5 · Section 9",
+      },
+
+      {
+        term:
+          "Jurisdiction",
+
+        simple:
+          "The court or legal area whose rules may apply to a dispute.",
+
+        inDocument:
+          "The document identifies the applicable legal area in its final section.",
+
+        citation:
+          "Page 8 · Section 16",
+      },
+    ],
+  };
+}
+
+/* =========================================================
+   NORMALIZE CITATION
+========================================================= */
+
+function normalizeCitation(
+  item: unknown,
+  index: number,
+): LegalCitation | null {
+  if (
+    !item ||
+    typeof item !== "object"
+  ) {
+    return null;
+  }
+
+  const citation =
+    item as Record<
+      string,
+      unknown
+    >;
+
+  const title =
+    typeof citation.title ===
+    "string"
+      ? citation.title
+      : typeof citation.actFile ===
+          "string"
+        ? citation.actFile
+        : "";
+
+  if (!title) {
+    return null;
+  }
+
+  return {
+    id:
+      typeof citation.id ===
+      "string"
+        ? citation.id
+        : `C${index + 1}`,
+
+    title,
+
+    actFile:
+      typeof citation.actFile ===
+      "string"
+        ? citation.actFile
+        : "",
+
+    sectionNumber:
+      typeof citation.sectionNumber ===
+      "string"
+        ? citation.sectionNumber
+        : typeof citation.sectionNumber ===
+            "number"
+          ? String(
+              citation.sectionNumber,
+            )
+          : null,
+
+    content:
+      typeof citation.content ===
+      "string"
+        ? citation.content
+        : "",
+
+    sourceName:
+      typeof citation.sourceName ===
+      "string"
+        ? citation.sourceName
+        : undefined,
+
+    sourceUrl:
+      typeof citation.sourceUrl ===
+      "string"
+        ? citation.sourceUrl
+        : undefined,
+
+  };
+}
+
+/* =========================================================
+   ASK LEGAL QUESTION
+========================================================= */
+
+export async function askQuestion(
+  question: string,
+  documentId?: string,
+  history: ChatMessage[] = [],
+  language: "en" | "bn" = "en",
+): Promise<ChatResponse> {
+  const response =
+    await fetch(
+      `${API_BASE_URL}/api/legal/ask`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+  question,
+  documentId,
+  history,
+  language,
+}),
+      },
+    );
+
+  let data:
+    Record<string, unknown>;
+
+  try {
+    data =
+      await response.json();
+  } catch {
+    throw new Error(
+      "The legal server returned an unreadable response. Please try again.",
+    );
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof data.error ===
+      "string"
+        ? data.error
+        : `Server error (${response.status}).`;
+
+    throw new Error(message);
+  }
+
+  if (data.ok === false) {
+    throw new Error(
+      typeof data.error ===
+      "string"
+        ? data.error
+        : "The legal server could not answer this question.",
+    );
+  }
+
+  const answer =
+    typeof data.answer ===
+    "string"
+      ? data.answer.trim()
+      : "";
+
+  if (!answer) {
+    throw new Error(
+      "The server returned an empty answer. Check the backend logs.",
+    );
+  }
+
+  const citations =
+    Array.isArray(
+      data.citations,
+    )
+      ? data.citations
+          .map(
+            normalizeCitation,
+          )
+          .filter(
+            (
+              item,
+            ): item is LegalCitation =>
+              item !== null,
+          )
+      : [];
+
+  return {
+    answer,
+    citations,
+    grounded:
+      data.grounded === true,
+  };
+}
+
+/* =========================================================
+   COMPARE DOCUMENTS
+========================================================= */
+
+export async function compareDocuments(
+  documents: CompareDocumentInput[],
+  language: "en" | "bn",
+): Promise<CompareResponse> {
+  if (documents.length < 2) {
+    throw new Error(
+      "At least two documents are required for comparison.",
+    );
+  }
+
+  const validDocuments =
+    documents.filter(
+      (document) =>
+        document &&
+        typeof document.name ===
+          "string" &&
+        typeof document.text ===
+          "string" &&
+        document.name.trim() &&
+        document.text.trim(),
+    );
+
+  if (validDocuments.length < 2) {
+    throw new Error(
+      "At least two readable documents are required for comparison.",
+    );
+  }
+
+  const response =
+    await fetch(
+      `${API_BASE_URL}/api/legal/compare`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          documents:
+            validDocuments,
+          language,
+        }),
+      },
+    );
+
+  let data:
+    Record<string, unknown>;
+
+  try {
+    data =
+      await response.json();
+  } catch {
+    throw new Error(
+      "The legal server returned an unreadable response. Please try again.",
+    );
+  }
+
+  if (
+    !response.ok ||
+    data.ok === false
+  ) {
+    throw new Error(
+      typeof data.error ===
+      "string"
+        ? data.error
+        : `Comparison failed (${response.status}).`,
+    );
+  }
+
+  if (
+    !data.summary ||
+    !Array.isArray(
+      data.findings,
+    )
+  ) {
+    throw new Error(
+      "The server returned an invalid comparison result.",
+    );
+  }
+
+  return {
+    findings:
+      data.findings as CompareFinding[],
+
+    summary:
+      data.summary as CompareResponse["summary"],
+  };
+}
+
+/* =========================================================
+   DOCUMENT EXTRACTION
+========================================================= */
+
+export type ExtractedPage = {
+  pageNumber: number;
+  text: string;
+  method: "text" | "ocr";
+};
+
+export type ExtractedDocument = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  pages: number;
+  extractionMethod: "text" | "ocr" | "mixed";
+  text: string;
+  pageData: ExtractedPage[];
+  warnings: string[];
+};
+
+export type ExtractDocumentResponse = {
+  ok: boolean;
+  document: ExtractedDocument;
+};
+
+export async function extractDocument(
+  file: File,
+): Promise<ExtractedDocument> {
+  const formData =
+    new FormData();
+
+  formData.append(
+    "file",
+    file,
+  );
+
+  const response =
+    await fetch(
+      `${API_BASE_URL}/api/legal/extract`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+  let data:
+    | ExtractDocumentResponse
+    | {
+        ok?: false;
+        error?: string;
+      };
+
+  try {
+    data =
+      await response.json();
+  } catch {
+    throw new Error(
+      "The document extraction server returned an invalid response.",
+    );
+  }
+
+  if (
+    !response.ok ||
+    !data.ok
+  ) {
+    throw new Error(
+      "error" in data &&
+      data.error
+        ? data.error
+        : "Document extraction failed.",
+    );
+  }
+
+  if (
+    !data.document?.text?.trim()
+  ) {
+    throw new Error(
+      "No readable text was extracted from the document.",
+    );
+  }
+
+  return data.document;
+}
+
+/* =========================================================
+   OFFLINE DEMO
+========================================================= */
+
+export {
+  askQuestionOffline,
+  isOfflineDemoMode,
+} from "./offlineDemo";

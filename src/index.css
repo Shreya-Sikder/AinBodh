@@ -1,0 +1,1626 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================
+   AINBODH — BASE
+   ========================================================= */
+
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #1a2332;
+  background: #f4f6f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+  background: #f4f6f9;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.bn,
+[lang="bn"] {
+  font-family: "Noto Sans Bengali", "Noto Sans", sans-serif;
+}
+
+/* =========================================================
+   PAGE ANIMATION
+   ========================================================= */
+
+.page-enter {
+  animation: pageEnter 0.18s ease-out;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0.55;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* =========================================================
+   TEXT SIZE
+   ========================================================= */
+
+/*
+  The old implementation only changed the root font size.
+  Many AinBodh components use Tailwind's fixed px classes,
+  so those did not visually change.
+
+  We instead scale the entire application using zoom.
+  This makes the existing fixed-size typography respond too.
+*/
+
+html[data-text-size="small"] #root {
+  zoom: 0.9;
+}
+
+html[data-text-size="medium"] #root {
+  zoom: 1;
+}
+
+html[data-text-size="large"] #root {
+  zoom: 1.15;
+}
+
+/* =========================================================
+   HIGH CONTRAST
+   ========================================================= */
+
+html[data-contrast="high"] .card {
+  border-width: 2px !important;
+}
+
+html[data-contrast="high"] .text-muted {
+  color: #334155 !important;
+}
+
+html[data-contrast="high"] button {
+  border-width: 2px;
+}
+
+html[data-theme="dark"][data-contrast="high"] .text-muted {
+  color: #e2e8f0 !important;
+}
+
+html[data-theme="dark"][data-contrast="high"] .card {
+  border-color: #14b8a6 !important;
+}
+
+/* =========================================================
+   LIGHT THEME
+   ========================================================= */
+
+html[data-theme="light"],
+html:not([data-theme]) {
+  color-scheme: light;
+}
+
+html[data-theme="light"] body,
+html:not([data-theme]) body {
+  background: #f4f6f9;
+  color: #1a2332;
+}
+
+/* =========================================================
+   DARK / NIGHT THEME
+   ========================================================= */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  background: #0b1220;
+}
+
+html[data-theme="dark"] body {
+  background: #0b1220;
+  color: #e7edf5;
+}
+
+/* Main page surfaces */
+
+html[data-theme="dark"] #root {
+  background: #0b1220;
+}
+
+/* ---------------------------------------------------------
+   Cards
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .card {
+  background: #111c2d !important;
+  border-color: rgba(20, 184, 166, 0.55) !important;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.22),
+    0 1px 3px rgba(20, 184, 166, 0.08);
+}
+
+/* Slightly stronger separation when hovering */
+
+html[data-theme="dark"] .card:hover {
+  border-color: rgba(20, 184, 166, 0.72) !important;
+}
+
+/* ---------------------------------------------------------
+   Typography
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .text-navy,
+html[data-theme="dark"] .section-title {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] .text-muted,
+html[data-theme="dark"] .label,
+html[data-theme="dark"] .field-label {
+  color: #aab8c9 !important;
+}
+
+html[data-theme="dark"] .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+/* ---------------------------------------------------------
+   Form fields
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .field,
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  background: #0d1726 !important;
+  color: #edf4fb !important;
+  border-color: rgba(20, 184, 166, 0.45) !important;
+}
+
+html[data-theme="dark"] .field::placeholder,
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #718096 !important;
+}
+
+html[data-theme="dark"] .field:focus,
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] textarea:focus,
+html[data-theme="dark"] select:focus {
+  border-color: #14b8a6 !important;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.12);
+}
+
+/* ---------------------------------------------------------
+   Secondary buttons
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .secondary-btn {
+  background: #111c2d !important;
+  color: #e8f0f7 !important;
+  border-color: rgba(20, 184, 166, 0.55) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+
+html[data-theme="dark"] .secondary-btn:hover {
+  background: #162538 !important;
+  border-color: #14b8a6 !important;
+}
+
+/* ---------------------------------------------------------
+   Settings choices
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .settings-choice {
+  background: #0d1726 !important;
+  color: #dce6ef !important;
+  border-color: rgba(20, 184, 166, 0.42) !important;
+}
+
+html[data-theme="dark"] .settings-choice:hover {
+  background: #142337 !important;
+  border-color: rgba(20, 184, 166, 0.75) !important;
+}
+
+html[data-theme="dark"] .settings-choice small {
+  color: #91a4b8 !important;
+}
+
+html[data-theme="dark"] .settings-choice-active {
+  background: #0f766e !important;
+  border-color: #2dd4bf !important;
+  color: white !important;
+  box-shadow: 0 3px 10px rgba(20, 184, 166, 0.16);
+}
+
+html[data-theme="dark"] .settings-choice-active small {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+/* ---------------------------------------------------------
+   Pills
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .pill,
+html[data-theme="dark"] .term-pill {
+  background: #162234 !important;
+  color: #b8c7d7 !important;
+  border-color: rgba(20, 184, 166, 0.4) !important;
+}
+
+html[data-theme="dark"] .pill:hover,
+html[data-theme="dark"] .term-pill:hover {
+  border-color: #14b8a6 !important;
+  color: #5eead4 !important;
+}
+
+/* ---------------------------------------------------------
+   Read buttons
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .read-btn {
+  background: #111c2d !important;
+  color: #b8c7d7 !important;
+  border-color: rgba(20, 184, 166, 0.4) !important;
+}
+
+html[data-theme="dark"] .read-btn:hover {
+  background: #162538 !important;
+  color: #5eead4 !important;
+  border-color: #14b8a6 !important;
+}
+
+/* ---------------------------------------------------------
+   Attention cards
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .attention-high {
+  background: rgba(127, 29, 29, 0.24) !important;
+  border-color: rgba(248, 113, 113, 0.55) !important;
+}
+
+html[data-theme="dark"] .attention-review {
+  background: rgba(120, 73, 12, 0.22) !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+}
+
+html[data-theme="dark"] .attention-info {
+  background: rgba(12, 74, 110, 0.24) !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+}
+
+html[data-theme="dark"] .important-card {
+  background: rgba(120, 73, 12, 0.22) !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+}
+
+html[data-theme="dark"] .missing-card {
+  background: rgba(12, 74, 110, 0.24) !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+}
+
+/* ---------------------------------------------------------
+   Toggle
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .toggle {
+  background: #475569;
+}
+
+html[data-theme="dark"] .toggle-on {
+  background: #0f766e;
+}
+
+/* ---------------------------------------------------------
+   Citation chips
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .citation-chip {
+  background: rgba(14, 116, 144, 0.22) !important;
+  border-color: rgba(56, 189, 248, 0.45) !important;
+  color: #7dd3fc !important;
+}
+
+/* ---------------------------------------------------------
+   Amber outline button
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .outline-amber-btn {
+  background: #171b22 !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme="dark"] .outline-amber-btn:hover {
+  background: rgba(120, 73, 12, 0.25) !important;
+}
+
+/* ---------------------------------------------------------
+   Dark viewer controls remain appropriate
+   --------------------------------------------------------- */
+
+html[data-theme="dark"] .viewer-page-btn {
+  background: #111c2d !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(20, 184, 166, 0.45) !important;
+}
+
+/* =========================================================
+   THEME TRANSITION
+   ========================================================= */
+
+html,
+body,
+#root,
+.card,
+.settings-choice,
+.secondary-btn,
+.field,
+input,
+textarea,
+select,
+button {
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+/* =========================================================
+   ACCESSIBILITY FOCUS
+   ========================================================= */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid #14b8a6;
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   AINBODH COMPONENTS
+   ========================================================= */
+
+@layer components {
+
+  .hero-gradient {
+    background: linear-gradient(174deg, #111f38 0%, #1a3255 100%);
+  }
+
+  .card {
+    @apply rounded-[10px] border border-border bg-white;
+  }
+
+  .section-title {
+    @apply text-[13px] font-bold uppercase tracking-[.78px] text-navy;
+  }
+
+  .label {
+    @apply text-[11px] font-semibold uppercase tracking-[.55px] text-muted;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-[10px] font-semibold uppercase tracking-[.55px] text-muted;
+  }
+
+  .field {
+    @apply h-10 w-full rounded-lg border border-border bg-white px-3.5 text-[12px] text-[#1a2332] outline-none transition focus:border-teal focus:ring-2 focus:ring-teal/10;
+  }
+
+  .field-icon {
+    @apply absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400;
+  }
+
+  .primary-btn {
+    @apply inline-flex items-center justify-center rounded-lg bg-teal px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-[#0b6f8e] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .secondary-btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#d6dee8] bg-white px-5 py-2.5 text-[13px] font-medium text-navy transition hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .secondary-dark {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-white/15;
+  }
+
+  .icon-button-dark {
+    @apply inline-flex size-8 items-center justify-center rounded-md text-white/65 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .read-btn {
+    @apply inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-muted transition hover:bg-[#f8fafc] hover:text-navy;
+  }
+
+  .pill {
+    @apply rounded-full border border-border bg-[#f0f4f8] px-3 py-1 text-[11px] text-[#475569] transition hover:border-teal hover:text-teal;
+  }
+
+  .citation-chip {
+    @apply rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[9px] font-semibold text-sky-700 hover:bg-sky-100;
+  }
+
+  .citation-inline {
+    @apply font-bold text-teal underline decoration-teal/50 underline-offset-2 hover:text-navy;
+  }
+
+  .sidebar-link {
+    @apply flex h-10 w-full items-center gap-2.5 rounded-lg border-l-2 border-transparent px-3 text-[13px] text-white/70 transition hover:bg-white/[0.04] hover:text-white;
+  }
+
+  .sidebar-link-active {
+    @apply border-teal bg-teal/20 font-semibold text-[#e0f5fb];
+  }
+
+  .brand-icon {
+    @apply flex size-[30px] shrink-0 items-center justify-center rounded-md bg-teal;
+  }
+
+  .brand-icon-small {
+    @apply size-7;
+  }
+
+  .lang-toggle {
+    @apply flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 pl-2.5 pr-1 py-1 text-[12px] font-semibold text-white;
+  }
+
+  .lang-toggle-compact {
+    @apply h-8;
+  }
+
+  .lang-active {
+    @apply text-white;
+  }
+
+  .lang-muted {
+    @apply text-white/45;
+  }
+
+  .lang-switch {
+    @apply relative h-5 w-9 rounded-full bg-white/15;
+  }
+
+  .lang-dot-left {
+    @apply absolute left-0.5 top-0.5 size-4 rounded-full bg-white transition-all;
+  }
+
+  .lang-dot-right {
+    @apply absolute right-0.5 top-0.5 size-4 rounded-full bg-white transition-all;
+  }
+
+  .attention-card {
+    @apply flex gap-2.5 rounded-[10px] border px-4 py-3.5;
+  }
+
+  .attention-high {
+    @apply border-red-300 bg-red-50;
+  }
+
+  .attention-review {
+    @apply border-amber-300 bg-amber-50;
+  }
+
+  .attention-info {
+    @apply border-sky-200 bg-sky-50;
+  }
+
+  .attention-high h3 {
+    @apply text-red-800;
+  }
+
+  .attention-review h3 {
+    @apply text-amber-800;
+  }
+
+  .attention-info h3 {
+    @apply text-sky-800;
+  }
+
+  .attention-badge {
+    @apply rounded px-1.5 py-0.5 text-[9px] font-bold;
+  }
+
+  .attention-high .attention-badge {
+    @apply text-red-800;
+  }
+
+  .attention-review .attention-badge {
+    @apply text-amber-800;
+  }
+
+  .attention-info .attention-badge {
+    @apply text-sky-800;
+  }
+
+  .important-card {
+    @apply flex gap-2.5 rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-3;
+  }
+
+  .missing-card {
+    @apply flex gap-2.5 rounded-[10px] border border-sky-200 bg-sky-50 px-4 py-3;
+  }
+
+  .outline-amber-btn {
+    @apply inline-flex items-center rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-50;
+  }
+
+  .term-pill {
+    @apply rounded-full border border-border bg-[#f0f4f8] px-3.5 py-1.5 text-[12px] font-semibold text-[#475569] transition hover:border-teal hover:text-teal;
+  }
+
+  .term-pill-active {
+    @apply border-teal bg-tealSoft text-teal;
+  }
+
+  .toggle {
+    @apply h-[22px] w-10 shrink-0 rounded-full bg-slate-300 p-[3px] transition;
+  }
+
+  .toggle span {
+    @apply block size-4 rounded-full bg-white shadow-sm transition;
+  }
+
+  .toggle-on {
+    @apply bg-navy;
+  }
+
+  .toggle-on span {
+    @apply translate-x-[18px];
+  }
+
+  .settings-choice {
+    @apply flex min-h-10 items-center justify-center gap-1 rounded-lg border border-border bg-[#f8fafc] px-3 py-2 text-[12px] font-semibold text-[#1a2332] transition hover:border-slate-300;
+  }
+
+  .settings-choice small {
+    @apply text-[9px] font-normal text-muted;
+  }
+
+  .settings-choice-active {
+    @apply border-navy bg-navy text-white;
+  }
+
+  .settings-choice-active small {
+    @apply text-white/60;
+  }
+
+  .viewer-control {
+    @apply flex size-8 items-center justify-center rounded-md border border-white/10 bg-white/10 text-white/75 hover:bg-white/15 hover:text-white;
+  }
+
+  .viewer-page-btn {
+    @apply inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-[10px] font-semibold text-navy disabled:opacity-40;
+  }
+}
+/* =========================================================
+   AINBODH — COMPLETE NIGHT MODE SURFACE OVERRIDES
+   ========================================================= */
+
+html[data-theme="dark"] body {
+  background: #0b1220 !important;
+  color: #e7edf5 !important;
+}
+
+html[data-theme="dark"] #root {
+  background: #0b1220 !important;
+  color: #e7edf5 !important;
+}
+
+/* Main application surfaces */
+html[data-theme="dark"] main {
+  background: #0b1220 !important;
+  color: #e7edf5 !important;
+}
+
+/* Common Tailwind light backgrounds */
+html[data-theme="dark"] .bg-white {
+  background-color: #111c2d !important;
+}
+
+html[data-theme="dark"] .bg-\[\#f4f6f9\] {
+  background-color: #0b1220 !important;
+}
+
+html[data-theme="dark"] .bg-\[\#faf9f5\] {
+  background-color: #0f1827 !important;
+}
+
+html[data-theme="dark"] .bg-\[\#f8fafc\] {
+  background-color: #162234 !important;
+}
+
+html[data-theme="dark"] .bg-\[\#f0f4f8\] {
+  background-color: #162234 !important;
+}
+
+/* Common light text colors */
+html[data-theme="dark"] .text-\[\#1a2332\] {
+  color: #e7edf5 !important;
+}
+
+html[data-theme="dark"] .text-\[\#475569\] {
+  color: #b8c7d7 !important;
+}
+
+/* Common light borders */
+html[data-theme="dark"] .border-\[\#d6dee8\] {
+  border-color: rgba(20, 184, 166, 0.5) !important;
+}
+
+/* Hover backgrounds */
+html[data-theme="dark"] .hover\:bg-\[\#f8fafc\]:hover {
+  background-color: #162538 !important;
+}
+
+/* =========================================================
+   NIGHT MODE — SETTINGS PAGE
+   ========================================================= */
+
+html[data-theme="dark"] .hero-gradient {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+/* The settings page's surrounding content */
+html[data-theme="dark"] .mx-auto {
+  color: #e7edf5;
+}
+
+/* =========================================================
+   NIGHT MODE — TEAL CARD EDGE
+   ========================================================= */
+
+html[data-theme="dark"] .card {
+  background: #111c2d !important;
+  border: 1px solid rgba(20, 184, 166, 0.55) !important;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.22),
+    0 1px 4px rgba(20, 184, 166, 0.08);
+}
+
+/* =========================================================
+   NIGHT MODE — INPUTS
+   ========================================================= */
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .field {
+  background-color: #0d1726 !important;
+  color: #edf4fb !important;
+  border-color: rgba(20, 184, 166, 0.45) !important;
+}
+
+/* =========================================================
+   NIGHT MODE — SETTINGS BUTTONS
+   ========================================================= */
+
+html[data-theme="dark"] .settings-choice {
+  background-color: #0d1726 !important;
+  color: #dce6ef !important;
+  border-color: rgba(20, 184, 166, 0.42) !important;
+}
+
+html[data-theme="dark"] .settings-choice-active {
+  background-color: #0f766e !important;
+  color: #ffffff !important;
+  border-color: #2dd4bf !important;
+  box-shadow: 0 3px 10px rgba(20, 184, 166, 0.18);
+}
+
+/* =========================================================
+   NIGHT MODE — SECONDARY BUTTONS
+   ========================================================= */
+
+html[data-theme="dark"] .secondary-btn {
+  background-color: #111c2d !important;
+  color: #e8f0f7 !important;
+  border-color: rgba(20, 184, 166, 0.55) !important;
+}
+
+html[data-theme="dark"] .secondary-btn:hover {
+  background-color: #162538 !important;
+  border-color: #14b8a6 !important;
+}
+
+/* =========================================================
+   NIGHT MODE — TEXT
+   ========================================================= */
+
+html[data-theme="dark"] .text-navy {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] .text-muted {
+  color: #aab8c9 !important;
+}
+
+/* =========================================================
+   NIGHT MODE — SUBTLE PAGE SHADOW
+   ========================================================= */
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .secondary-btn {
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.18);
+}
+/* =========================================================
+   AINBODH — FINAL NIGHT MODE READABILITY FIX
+   ========================================================= */
+
+/* ---------- GLOBAL TEXT ---------- */
+
+html[data-theme="dark"] #root {
+  color: #e8eef5 !important;
+}
+
+html[data-theme="dark"] #root .text-navy {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] #root .text-\[\#1a2332\] {
+  color: #e8eef5 !important;
+}
+
+html[data-theme="dark"] #root .text-\[\#475569\] {
+  color: #b8c5d4 !important;
+}
+
+html[data-theme="dark"] #root .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme="dark"] #root .text-slate-800 {
+  color: #e2e8f0 !important;
+}
+
+html[data-theme="dark"] #root .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] #root .text-muted {
+  color: #aab8c9 !important;
+}
+
+
+/* ---------- HEADINGS ---------- */
+
+html[data-theme="dark"] #root h1,
+html[data-theme="dark"] #root h2,
+html[data-theme="dark"] #root h3,
+html[data-theme="dark"] #root h4,
+html[data-theme="dark"] #root h5,
+html[data-theme="dark"] #root h6 {
+  color: #f1f5f9;
+}
+
+
+/* ---------- PARAGRAPHS / NORMAL CONTENT ---------- */
+
+html[data-theme="dark"] #root p {
+  color: #c3cfdd;
+}
+
+
+/*
+  Don't affect intentionally white text used in the
+  navbar, sidebar, hero and dark buttons.
+*/
+
+html[data-theme="dark"] #root .text-white,
+html[data-theme="dark"] #root .text-white\/60,
+html[data-theme="dark"] #root .text-white\/70,
+html[data-theme="dark"] #root .text-white\/75,
+html[data-theme="dark"] #root .text-white\/50,
+html[data-theme="dark"] #root .text-white\/45 {
+  color: inherit;
+}
+
+
+/* ---------- AI RESPONSE / CHAT CONTENT ---------- */
+
+html[data-theme="dark"] #root .prose,
+html[data-theme="dark"] #root .prose p,
+html[data-theme="dark"] #root .prose li,
+html[data-theme="dark"] #root .prose span {
+  color: #d8e2ec !important;
+}
+
+
+/* ---------- INPUT / PLACEHOLDER ---------- */
+
+html[data-theme="dark"] #root input,
+html[data-theme="dark"] #root textarea,
+html[data-theme="dark"] #root select {
+  color: #edf4fb !important;
+}
+
+html[data-theme="dark"] #root input::placeholder,
+html[data-theme="dark"] #root textarea::placeholder {
+  color: #7890a8 !important;
+}
+
+
+/* ---------- BORDERS ---------- */
+
+/*
+  Dark backgrounds need visible separation.
+  Use restrained teal instead of dark-on-dark borders.
+*/
+
+html[data-theme="dark"] #root .border-border {
+  border-color: rgba(20, 184, 166, 0.48) !important;
+}
+
+html[data-theme="dark"] #root .border-\[\#d6dee8\] {
+  border-color: rgba(20, 184, 166, 0.52) !important;
+}
+
+
+/* ---------- CARDS ---------- */
+
+html[data-theme="dark"] #root .card {
+  background: #111c2d !important;
+  border-color: rgba(20, 184, 166, 0.55) !important;
+
+  box-shadow:
+    0 5px 18px rgba(0, 0, 0, 0.22),
+    0 1px 4px rgba(20, 184, 166, 0.08) !important;
+}
+
+
+/* ---------- CHAT / MESSAGE BOX ---------- */
+
+html[data-theme="dark"] #root textarea,
+html[data-theme="dark"] #root input {
+  background: #0d1726 !important;
+  border-color: rgba(20, 184, 166, 0.48) !important;
+}
+
+html[data-theme="dark"] #root textarea:focus,
+html[data-theme="dark"] #root input:focus {
+  border-color: #14b8a6 !important;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.12) !important;
+}
+
+
+/* ---------- SETTINGS BUTTONS ---------- */
+
+html[data-theme="dark"] #root .settings-choice {
+  background: #0d1726 !important;
+  color: #dce6ef !important;
+  border-color: rgba(20, 184, 166, 0.48) !important;
+}
+
+html[data-theme="dark"] #root .settings-choice-active {
+  background: #0f766e !important;
+  color: #ffffff !important;
+  border-color: #2dd4bf !important;
+}
+
+
+/* ---------- SECONDARY BUTTON ---------- */
+
+html[data-theme="dark"] #root .secondary-btn {
+  background: #111c2d !important;
+  color: #e8f0f7 !important;
+  border-color: rgba(20, 184, 166, 0.52) !important;
+
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16) !important;
+}
+
+
+/* ---------- ICONS THAT USE DARK TEXT ---------- */
+
+html[data-theme="dark"] #root .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] #root .text-slate-500 {
+  color: #a8b6c5 !important;
+}
+
+
+/* ---------- DARK MODE PAGE BACKGROUND ---------- */
+
+html[data-theme="dark"],
+html[data-theme="dark"] body,
+html[data-theme="dark"] #root {
+  background-color: #0b1220 !important;
+}
+
+
+/* ---------- LIGHT BACKGROUNDS THAT MUST DISAPPEAR ---------- */
+
+html[data-theme="dark"] #root .bg-white {
+  background-color: #111c2d !important;
+}
+
+html[data-theme="dark"] #root .bg-\[\#f4f6f9\] {
+  background-color: #0b1220 !important;
+}
+
+html[data-theme="dark"] #root .bg-\[\#faf9f5\] {
+  background-color: #0f1827 !important;
+}
+
+html[data-theme="dark"] #root .bg-\[\#f8fafc\] {
+  background-color: #162234 !important;
+}
+
+html[data-theme="dark"] #root .bg-\[\#f0f4f8\] {
+  background-color: #162234 !important;
+}
+/* =========================================================
+   AINBODH — RESPONSIVE LAYOUT
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   GLOBAL RESPONSIVE BASE
+--------------------------------------------------------- */
+
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  max-width: 100%;
+}
+
+/* Prevent long text / filenames from breaking layouts */
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+span,
+a,
+label {
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------
+   TABLES
+--------------------------------------------------------- */
+
+.overflow-x-auto {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+table {
+  max-width: 100%;
+}
+
+/* ---------------------------------------------------------
+   MOBILE — 768px AND BELOW
+--------------------------------------------------------- */
+
+@media (max-width: 768px) {
+
+  /* -----------------------------------------------
+     ACCESSIBILITY ZOOM
+     
+     Keep text-size preference but prevent large
+     zoom from making mobile layouts unusable.
+  ----------------------------------------------- */
+
+  html[data-text-size="small"] #root {
+    zoom: 0.95;
+  }
+
+  html[data-text-size="medium"] #root {
+    zoom: 1;
+  }
+
+  html[data-text-size="large"] #root {
+    zoom: 1.05;
+  }
+
+  /* -----------------------------------------------
+     MAIN PAGE CONTAINERS
+  ----------------------------------------------- */
+
+  main {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  main > div {
+    max-width: 100% !important;
+  }
+
+  /* Common centered page layouts */
+
+  .mx-auto {
+    max-width: 100%;
+  }
+
+  /* -----------------------------------------------
+     CARDS
+  ----------------------------------------------- */
+
+  .card {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* -----------------------------------------------
+     FLEX LAYOUTS
+     
+     Prevent desktop flex rows from squeezing
+     content into tiny columns.
+  ----------------------------------------------- */
+
+  .flex {
+    min-width: 0;
+  }
+
+  .flex-1,
+  .min-w-0 {
+    min-width: 0 !important;
+  }
+
+  /* -----------------------------------------------
+     GRID
+  ----------------------------------------------- */
+
+  .grid {
+    min-width: 0;
+  }
+
+  /* Common 2-column layouts become one column */
+
+  .grid.md\:grid-cols-2,
+  .grid.md\:grid-cols-3,
+  .grid.md\:grid-cols-4 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* -----------------------------------------------
+     WIDTH OVERRIDES
+  ----------------------------------------------- */
+
+  .max-w-\[1144px\],
+  .max-w-\[1000px\],
+  .max-w-\[900px\],
+  .max-w-\[800px\],
+  .max-w-\[760px\],
+  .max-w-\[720px\],
+  .max-w-\[680px\],
+  .max-w-\[640px\],
+  .max-w-\[600px\],
+  .max-w-\[560px\],
+  .max-w-\[520px\],
+  .max-w-\[480px\],
+  .max-w-\[440px\],
+  .max-w-\[420px\] {
+    max-width: 100% !important;
+  }
+
+  /* -----------------------------------------------
+     PAGE PADDING
+  ----------------------------------------------- */
+
+  .px-6 {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .px-7 {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .px-8 {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .px-\[52px\] {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .py-10 {
+    padding-top: 28px !important;
+    padding-bottom: 28px !important;
+  }
+
+  /* -----------------------------------------------
+     HEADINGS
+  ----------------------------------------------- */
+
+  h1 {
+    max-width: 100%;
+  }
+
+  /* -----------------------------------------------
+     AUTH / FORM PAGES
+  ----------------------------------------------- */
+
+  form {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* -----------------------------------------------
+     TABLE / DOCUMENT REVIEW
+  ----------------------------------------------- */
+
+  table {
+    font-size: 10px;
+  }
+
+  th,
+  td {
+    white-space: normal;
+  }
+
+  /* -----------------------------------------------
+     SIDEBAR
+     
+     If the application sidebar uses a normal
+     <aside>, allow it to become narrower.
+  ----------------------------------------------- */
+
+  aside {
+    max-width: 82vw;
+  }
+
+  /* -----------------------------------------------
+     NAVIGATION
+  ----------------------------------------------- */
+
+  header {
+    min-width: 0;
+  }
+
+  header > * {
+    min-width: 0;
+  }
+
+  header a {
+    min-width: 0;
+  }
+
+  /* -----------------------------------------------
+     BUTTONS
+  ----------------------------------------------- */
+
+  .primary-btn,
+  .secondary-btn {
+    max-width: 100%;
+  }
+
+  /* -----------------------------------------------
+     CHAT
+  ----------------------------------------------- */
+
+  .max-w-\[88\%\] {
+    max-width: 92% !important;
+  }
+
+  /* Make chat content use available width */
+
+  textarea {
+    min-width: 0 !important;
+  }
+}
+
+/* =========================================================
+   MOBILE — 640px AND BELOW
+   ========================================================= */
+
+@media (max-width: 640px) {
+
+  /* -----------------------------------------------
+     BODY
+  ----------------------------------------------- */
+
+  body {
+    min-width: 320px;
+  }
+
+  /* -----------------------------------------------
+     TOP NAVIGATION
+  ----------------------------------------------- */
+
+  header.flex {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  header {
+    gap: 8px;
+  }
+
+  /* -----------------------------------------------
+     LOGO
+  ----------------------------------------------- */
+
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* -----------------------------------------------
+     PAGE CONTENT
+  ----------------------------------------------- */
+
+  .py-6 {
+    padding-top: 20px !important;
+    padding-bottom: 20px !important;
+  }
+
+  .py-5 {
+    padding-top: 18px !important;
+    padding-bottom: 18px !important;
+  }
+
+  .px-5 {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .px-6 {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .px-7 {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  /* -----------------------------------------------
+     FLEX ROWS THAT SHOULD STACK
+  ----------------------------------------------- */
+
+  .md\:flex-row {
+    flex-direction: column !important;
+  }
+
+  .md\:items-center {
+    align-items: stretch !important;
+  }
+
+  .md\:justify-between {
+    justify-content: flex-start !important;
+  }
+
+  /* -----------------------------------------------
+     GRID
+  ----------------------------------------------- */
+
+  .grid.md\:grid-cols-2,
+  .grid.md\:grid-cols-3,
+  .grid.md\:grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* -----------------------------------------------
+     DOCUMENT CARDS
+  ----------------------------------------------- */
+
+  .card.flex {
+    flex-wrap: wrap;
+  }
+
+  /* -----------------------------------------------
+     ACTION BUTTON GROUPS
+  ----------------------------------------------- */
+
+  .gap-4 {
+    gap: 12px !important;
+  }
+
+  /* -----------------------------------------------
+     AUTH PAGE
+  ----------------------------------------------- */
+
+  .min-h-\[calc\(100vh-56px\)\] {
+    min-height: calc(100vh - 56px) !important;
+    align-items: flex-start !important;
+    padding-top: 24px !important;
+    padding-bottom: 24px !important;
+  }
+
+  /* -----------------------------------------------
+     CHAT PANEL
+  ----------------------------------------------- */
+
+  .max-h-\[620px\] {
+    max-height: none !important;
+  }
+
+  .min-h-\[540px\] {
+    min-height: 460px !important;
+  }
+
+  /* Allow message bubbles to breathe */
+
+  .max-w-\[88\%\] {
+    max-width: 94% !important;
+  }
+
+  /* -----------------------------------------------
+     MODALS
+  ----------------------------------------------- */
+
+  [role="dialog"] {
+    max-width: calc(100vw - 28px) !important;
+    max-height: calc(100vh - 28px);
+    overflow-y: auto;
+  }
+
+  /* -----------------------------------------------
+     TABLES
+  ----------------------------------------------- */
+
+  .overflow-x-auto {
+    width: 100%;
+    overflow-x: auto !important;
+  }
+
+  /* -----------------------------------------------
+     INPUT AREAS
+  ----------------------------------------------- */
+
+  .flex.items-end {
+    min-width: 0;
+  }
+
+  /* -----------------------------------------------
+     LARGE TEXT
+  ----------------------------------------------- */
+
+  html[data-text-size="large"] #root {
+    zoom: 1;
+  }
+
+  /* Keep the larger accessibility setting readable
+     without creating horizontal overflow. */
+
+  html[data-text-size="large"] body {
+    font-size: 16px;
+  }
+}
+
+/* =========================================================
+   MOBILE — 480px AND BELOW
+   ========================================================= */
+
+@media (max-width: 480px) {
+
+  /* -----------------------------------------------
+     GLOBAL SPACING
+  ----------------------------------------------- */
+
+  .p-7 {
+    padding: 18px !important;
+  }
+
+  .p-6 {
+    padding: 16px !important;
+  }
+
+  .p-5 {
+    padding: 14px !important;
+  }
+
+  .p-4 {
+    padding: 14px !important;
+  }
+
+  /* -----------------------------------------------
+     AUTH FORM
+  ----------------------------------------------- */
+
+  .min-h-\[calc\(100vh-56px\)\] {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* -----------------------------------------------
+     HEADINGS
+  ----------------------------------------------- */
+
+  h1.text-\[22px\] {
+    font-size: 20px !important;
+    line-height: 1.35 !important;
+  }
+
+  h2 {
+    max-width: 100%;
+  }
+
+  /* -----------------------------------------------
+     BUTTONS
+  ----------------------------------------------- */
+
+  .primary-btn,
+  .secondary-btn {
+    min-height: 42px;
+  }
+
+  /* -----------------------------------------------
+     CHAT
+  ----------------------------------------------- */
+
+  .min-h-\[540px\] {
+    min-height: 420px !important;
+  }
+
+  .max-w-\[88\%\] {
+    max-width: 96% !important;
+  }
+
+  /* -----------------------------------------------
+     CHAT INPUT
+  ----------------------------------------------- */
+
+  textarea {
+    font-size: 12px !important;
+  }
+
+  /* -----------------------------------------------
+     HEADER
+  ----------------------------------------------- */
+
+  header .text-\[14px\] {
+    font-size: 13px !important;
+  }
+
+  header .text-\[10px\] {
+    font-size: 9px !important;
+  }
+
+  /* -----------------------------------------------
+     FOOTER
+  ----------------------------------------------- */
+
+  footer {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  /* -----------------------------------------------
+     TABLE
+  ----------------------------------------------- */
+
+  table {
+    min-width: 650px;
+  }
+}
+
+/* =========================================================
+   EXTRA SMALL — 380px AND BELOW
+   ========================================================= */
+
+@media (max-width: 380px) {
+
+  header.flex {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .px-6,
+  .px-7,
+  .px-8 {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .p-7 {
+    padding: 14px !important;
+  }
+
+  .p-6 {
+    padding: 14px !important;
+  }
+
+  .primary-btn,
+  .secondary-btn {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+
+/* =========================================================
+   TOUCH DEVICES
+========================================================= */
+
+@media (hover: none) and (pointer: coarse) {
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  .primary-btn,
+  .secondary-btn,
+  .sidebar-link,
+  .viewer-control,
+  .viewer-page-btn {
+    min-height: 40px;
+  }
+
+  .icon-button-dark {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* =========================================================
+   REDUCE MOTION
+========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

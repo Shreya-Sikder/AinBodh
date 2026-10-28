@@ -1,0 +1,620 @@
+import {
+  Loader2,
+  Mic,
+  Send,
+  Volume2,
+} from "lucide-react";
+import { useState } from "react";
+import { useLanguage } from "../context/LanguageContext";
+import {
+  useApp,
+  type ChatCitation,
+} from "../context/AppContext";
+import { askQuestion } from "../services/api";
+import ReadAloud from "./ReadAloud";
+import { useVoiceTranscriber } from "../hooks/useVoiceTranscriber";
+
+function citationLabel(
+  citation: ChatCitation,
+  index: number,
+) {
+  return (
+    citation.id ||
+    `C${index + 1}`
+  );
+}
+
+export default function ChatPanel({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
+  const { lang } =
+    useLanguage();
+
+  const {
+    chatMessages,
+    addMessage,
+    addMessageToChat,
+    selectedDocument,
+    notify,
+  } = useApp();
+
+  const [input, setInput] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const bn =
+    lang === "bn";
+
+  const {
+    recording: voiceRecording,
+    supported:
+      voiceSupported,
+    error: voiceError,
+    start: startVoice,
+    stop: stopVoice,
+  } = useVoiceTranscriber({
+    language:
+      bn ? "bn" : "en",
+
+    onTranscript:
+      setInput,
+  });
+
+  /* =========================================================
+     SEND MESSAGE
+  ========================================================= */
+
+  async function sendMessage() {
+    const trimmed =
+      input.trim();
+
+    if (
+      !trimmed ||
+      loading
+    ) {
+      return;
+    }
+
+    if (voiceRecording) {
+      stopVoice();
+    }
+
+    /*
+     * Capture existing history BEFORE adding
+     * the new question.
+     */
+    const history =
+      chatMessages.map(
+        (message) => ({
+          role:
+            message.role,
+          content:
+            message.text,
+        }),
+      );
+
+    /*
+     * IMPORTANT:
+     * addMessage returns the exact chat ID.
+     *
+     * That means the assistant response can
+     * always be written into the SAME conversation.
+     */
+    const chatId =
+      addMessage({
+        id: `user-${Date.now()}`,
+        role: "user",
+        text: trimmed,
+        createdAt:
+          Date.now(),
+      });
+
+    /*
+     * Clear the input immediately after sending.
+     */
+    setInput("");
+
+    setLoading(true);
+
+    try {
+     const response =
+  await askQuestion(
+    trimmed,
+    selectedDocument?.id,
+    history,
+    lang,
+  );
+
+      /*
+       * Write the assistant reply to the
+       * exact same saved conversation.
+       */
+      addMessageToChat(
+        chatId,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          text:
+            response.answer,
+          citations:
+            response.citations,
+          createdAt:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : bn
+            ? "উত্তর দিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।"
+            : "Something went wrong while getting the answer.";
+
+      addMessageToChat(
+        chatId,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          text: message,
+          createdAt:
+            Date.now(),
+        },
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* =========================================================
+     ENTER KEY
+  ========================================================= */
+
+  function handleKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+
+      void sendMessage();
+    }
+  }
+
+  /* =========================================================
+     VOICE
+  ========================================================= */
+
+  function handleVoice() {
+    if (voiceRecording) {
+      stopVoice();
+      return;
+    }
+
+    startVoice(input);
+  }
+
+  /* =========================================================
+     CITATIONS
+  ========================================================= */
+
+  function openCitation(
+    citation: ChatCitation,
+  ) {
+    if (
+      !citation.sourceUrl
+    ) {
+      notify(
+        bn
+          ? "এই রেফারেন্সের জন্য কোনো অফিসিয়াল উৎস লিংক পাওয়া যায়নি।"
+          : "No official source link is available for this reference.",
+      );
+
+      return;
+    }
+
+    window.open(
+      citation.sourceUrl,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
+
+  return (
+    <section
+      className={[
+        "flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-white",
+        compact
+          ? "max-h-[620px]"
+          : "min-h-[540px]",
+      ].join(" ")}
+    >
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <p
+            className={`text-[12px] font-bold text-navy ${
+              bn ? "bn" : ""
+            }`}
+          >
+            {bn
+              ? "আইন সহায়ক"
+              : "Legal assistant"}
+          </p>
+
+          <p
+            className={`pt-0.5 truncate text-[9px] text-muted ${
+              bn ? "bn" : ""
+            }`}
+          >
+            {selectedDocument
+              ? selectedDocument.name
+              : bn
+                ? "আপনার প্রশ্ন লিখুন"
+                : "Ask a legal question"}
+          </p>
+        </div>
+      </div>
+
+      {/* =====================================================
+          MESSAGES
+      ===================================================== */}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {chatMessages.length ===
+        0 ? (
+          <div className="flex min-h-[300px] items-center justify-center">
+            <div className="max-w-[420px] text-center">
+              <div className="mx-auto flex size-11 items-center justify-center rounded-full bg-tealSoft text-teal">
+                <Volume2 className="size-5" />
+              </div>
+
+              <h3
+                className={`pt-4 text-[14px] font-bold text-navy ${
+                  bn ? "bn" : ""
+                }`}
+              >
+                {bn
+                  ? "আপনার আইনি প্রশ্ন করুন"
+                  : "Ask your legal question"}
+              </h3>
+
+              <p
+                className={`mx-auto max-w-[360px] pt-2 text-[10px] leading-5 text-muted ${
+                  bn ? "bn" : ""
+                }`}
+              >
+                {bn
+                  ? "প্রশ্নটি স্পষ্টভাবে লিখুন। প্রাসঙ্গিক আইনি উৎস পাওয়া গেলে উত্তরটির সঙ্গে রেফারেন্স দেখানো হবে।"
+                  : "Ask clearly and concisely. Relevant legal references will appear with the answer when available."}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {chatMessages.map(
+              (message) => {
+                const isUser =
+                  message.role ===
+                  "user";
+
+                return (
+                  <div
+                    key={
+                      message.id
+                    }
+                    className={`flex ${
+                      isUser
+                        ? "justify-end"
+                        : "justify-start"
+                    }`}
+                  >
+                    <div
+                      className={`max-w-[88%] ${
+                        isUser
+                          ? "rounded-2xl rounded-br-md bg-navy px-4 py-3 text-white"
+                          : "w-full max-w-[720px]"
+                      }`}
+                    >
+                      <div
+                        className={`whitespace-pre-wrap text-[11px] leading-6 ${
+                          isUser
+                            ? "text-white"
+                            : `text-[#334155] ${
+                                bn
+                                  ? "bn"
+                                  : ""
+                              }`
+                        }`}
+                      >
+                        {
+                          message.text
+                        }
+                      </div>
+
+                      {/* ===================================
+                          SOURCES
+                      =================================== */}
+
+                      {!isUser &&
+                        message.citations &&
+                        message
+                          .citations
+                          .length >
+                          0 && (
+                          <div className="pt-3">
+                            <div
+                              className={`text-[9px] font-bold uppercase tracking-[0.08em] text-muted ${
+                                bn
+                                  ? "bn"
+                                  : ""
+                              }`}
+                            >
+                              {bn
+                                ? "আইনি উৎস"
+                                : "Legal sources"}
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5 pt-2">
+                              {message.citations.map(
+                                (
+                                  citation,
+                                  index,
+                                ) => (
+                                  <button
+                                    key={`${citation.id}-${index}`}
+                                    type="button"
+                                    onClick={() =>
+                                      openCitation(
+                                        citation,
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-[#f8fafc] px-2 py-1.5 text-[9px] font-semibold text-teal transition hover:border-teal hover:bg-tealSoft"
+                                  >
+                                    [
+                                    {
+                                      citationLabel(
+                                        citation,
+                                        index,
+                                      )
+                                    }
+                                    ]
+
+                                    <span className="max-w-[180px] truncate">
+                                      {citation.sourceName ||
+                                        citation.title}
+                                    </span>
+                                  </button>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                      {/* ===================================
+                          READ ALOUD
+                      =================================== */}
+
+                      {!isUser &&
+                        message.text && (
+                          <div className="flex items-center gap-2 pt-2">
+                            <ReadAloud
+                              text={
+                                message.text
+                              }
+                            />
+
+                            {message
+                              .citations
+                              ?.length ? (
+                              <span className="text-[8px] text-muted">
+                                {
+                                  message
+                                    .citations
+                                    .length
+                                }{" "}
+                                {bn
+                                  ? "টি উৎস"
+                                  : "source(s)"}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                );
+              },
+            )}
+
+            {/* =============================================
+                LOADING
+            ============================================= */}
+
+            {loading && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-2 rounded-2xl border border-border bg-[#f8fafc] px-4 py-3 text-[10px] text-muted">
+                  <Loader2 className="size-3.5 animate-spin" />
+
+                  <span
+                    className={
+                      bn ? "bn" : ""
+                    }
+                  >
+                    {bn
+                      ? "আইনি তথ্য যাচাই করা হচ্ছে..."
+                      : "Checking the legal information..."}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================
+          INPUT AREA
+      ===================================================== */}
+
+      <div className="border-t border-border bg-[#fafbfc] p-3">
+        {/* ================================================
+            LIVE VOICE STATUS
+        ================================================ */}
+
+        {voiceRecording && (
+          <div
+            className={`flex items-center gap-2 px-1 pb-2 text-[9px] text-red-600 ${
+              bn ? "bn" : ""
+            }`}
+          >
+            <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+
+            {bn
+              ? "আপনার কথা লেখা হচ্ছে..."
+              : "Listening and transcribing..."}
+          </div>
+        )}
+
+        {!voiceRecording &&
+          voiceError && (
+            <div
+              className={`px-1 pb-2 text-[9px] text-red-600 ${
+                bn ? "bn" : ""
+              }`}
+            >
+              {
+                voiceError
+              }
+            </div>
+          )}
+
+        <div className="flex items-end gap-2 rounded-xl border border-border bg-white p-2">
+          {/* =============================================
+              MICROPHONE
+          ============================================= */}
+
+          <button
+            type="button"
+            onClick={
+              handleVoice
+            }
+            disabled={
+              !voiceSupported ||
+              loading
+            }
+            className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition ${
+              voiceRecording
+                ? "bg-red-50 text-red-600"
+                : "text-muted hover:bg-[#f1f5f9] hover:text-teal"
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+            aria-label={
+              voiceRecording
+                ? bn
+                  ? "রেকর্ডিং বন্ধ করুন"
+                  : "Stop recording"
+                : bn
+                  ? "ভয়েস ইনপুট"
+                  : "Voice input"
+            }
+            title={
+              voiceRecording
+                ? bn
+                  ? "রেকর্ডিং বন্ধ করুন"
+                  : "Stop recording"
+                : bn
+                  ? "ভয়েসে বলুন"
+                  : "Speak"
+            }
+          >
+            <Mic
+              className={`size-4 ${
+                voiceRecording
+                  ? "animate-pulse"
+                  : ""
+              }`}
+            />
+          </button>
+
+          {/* =============================================
+              TEXT INPUT
+          ============================================= */}
+
+          <textarea
+            value={input}
+            onChange={(
+              event,
+            ) =>
+              setInput(
+                event.target.value,
+              )
+            }
+            onKeyDown={
+              handleKeyDown
+            }
+            rows={1}
+            placeholder={
+              bn
+                ? "আপনার আইনি প্রশ্ন লিখুন..."
+                : "Type your legal question..."
+            }
+            className={`max-h-28 min-h-9 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-[11px] text-navy outline-none placeholder:text-muted ${
+              bn ? "bn" : ""
+            }`}
+          />
+
+          {/* =============================================
+              SEND
+          ============================================= */}
+
+          <button
+            type="button"
+            onClick={() =>
+              void sendMessage()
+            }
+            disabled={
+              !input.trim() ||
+              loading
+            }
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={
+              bn
+                ? "পাঠান"
+                : "Send"
+            }
+          >
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+          </button>
+        </div>
+
+        {/* ===============================================
+            DISCLAIMER
+        =============================================== */}
+
+        <p
+          className={`px-1 pt-1.5 text-[8px] text-muted ${
+            bn ? "bn" : ""
+          }`}
+        >
+          {bn
+            ? "AI উত্তর সাধারণ তথ্যের জন্য। প্রাসঙ্গিক উৎস যাচাই করুন।"
+            : "AI responses are informational. Check the cited sources where relevant."}
+        </p>
+      </div>
+    </section>
+  );
+}
